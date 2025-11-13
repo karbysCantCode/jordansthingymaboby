@@ -2,15 +2,20 @@ import random
 import numpy
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+from enum import Enum
+from tqdm import tqdm
 
+#DEBUGGING
+DEBUGGING = False
+MUTE_INTERMEDIATE_PRINTS = True
 # Example usage
-MINE_DENSITY = 0.2
+MINE_DENSITY = 0.1
 
-MAP_X = 10
-MAP_Y = 10
+MAP_X = 30
+MAP_Y = 30
 MINE_COUNT = int(MAP_X*MAP_Y*MINE_DENSITY)
 #MINE_COUNT = 1
-test_count = 1
+test_count = 10000
 
 
 
@@ -221,14 +226,10 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
         already_spread_map[coordinate_tuple[0]][coordinate_tuple[1]] = 1
         scored_map[coordinate_tuple[0]][coordinate_tuple[1]] = current_location_mine_score
         bombed_map[coordinate_tuple[0]][coordinate_tuple[1]] = current_location_mine_score
-        #print(f"{coordinate_tuple[0]},{coordinate_tuple[1]} = {current_location_mine_score}")
 
 
 
       zero_spread_last_step_solved_coordinates.clear()
-      #for next_cell in next_step_coordinates:
-      #  print(f"to check {next_cell[0]},{next_cell[1]}")
-      #print(f"{changes_last_step} changed")
       zero_spread_last_step_solved_coordinates = next_step_coordinates.copy()
       next_step_coordinates.clear()
   
@@ -246,7 +247,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
 
     for coordinate_tuple in discovered_incomplete_coordinates.copy():
       #debug
-      if not last_square_unchanged:
+      if not last_square_unchanged and DEBUGGING:
         delta_text_map(start_position_x,start_position_y,map_x,map_y,scored_map)
         print()
         render_board(scored_map,MAP_X,MAP_Y)
@@ -266,7 +267,8 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
       #if there are only the number of blanks around or
       #if there are only the number of flag + blanks
       if ((current_score == blanks_around) and (0 == flags_around)) or (current_score - flags_around == blanks_around):
-        print(f'{coordinate_tuple[0]},{coordinate_tuple[1]}, C={current_score}, F={flags_around}, B={blanks_around}')
+        if not MUTE_INTERMEDIATE_PRINTS:
+          print(f'{coordinate_tuple[0]},{coordinate_tuple[1]}, C={current_score}, F={flags_around}, B={blanks_around}')
         for blank_coordinate_tuple in blanks_coordinate_list:
           #flag blanks
           scored_map[blank_coordinate_tuple[0]][blank_coordinate_tuple[1]] = '*'
@@ -303,34 +305,93 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
 
   return mutated_minefield, is_5050, scored_map
 
+class completion_tags(Enum):
+  INCOMPLETE = 0
+  INVALID_FLAG = 1
+  COMPLETE = 2
+
+
+
+  
+
+def verify_board(board, minefield):
+  valid = True
+  tags : list[completion_tags] = []
+
+  #cjecking all of board is explored
+  x_pos = 0
+  y_pos = 0
+  for row in board:
+    for cell in row:
+      if cell == 'N':
+        valid = False
+        if completion_tags.INCOMPLETE not in tags:
+          tags.append(completion_tags.INCOMPLETE)
+      elif (cell == '*') != minefield[x_pos][y_pos]:
+        valid = False
+        if completion_tags.INVALID_FLAG not in tags:
+          tags.append(completion_tags.INVALID_FLAG)
+      y_pos += 1
+    y_pos = 0
+    x_pos += 1
+
+        
+
+
+  #checking invalid flags
+  # for mine_coordinate in minefield:
+  #   if not board[mine_coordinate[0]][mine_coordinate[1]] == '*':
+  #     valid = False
+  #     if completion_tags.INVALID_FLAG not in tags:
+  #       tags.append(completion_tags.INVALID_FLAG)
+  
+  if valid:
+    tags.append(completion_tags.COMPLETE)
+  return valid, tags
 
 
 
 verif_count = 0
-for index in range(test_count):
+completion_counts = {
+  "COMPLETE" : 0,
+  "INVALID_FLAG" : 0,
+  "INCOMPLETE" : 0
+}
+
+for index in tqdm(range(test_count),desc="games simulated"):
   minefield, start_position_x, start_position_y,mine_positions = generate_minefield(MAP_X, MAP_Y, MINE_COUNT)
   solved_minefield, is_5050, score_map = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y)
-  # Print grid nicely
-  for row in minefield:
-    print('  '.join(str(cell) for cell in row))
-  print()
-  for row in score_map:
-    print('  '.join(str(cell) for cell in row))
-  print()
-  for x in range(MAP_X):
-    row = ''
-    for y in range(MAP_Y):
-      if (x,y) in mine_positions:
-        if score_map[x][y] == "*" and minefield[x][y] == 1:
-          row += f"  *"
-        else:
-          row += f"  X"
-      elif (x,y) == (start_position_x, start_position_y):
-        row += f"  !"
-      else:
-        row += f"  {score_map[x][y]}"
+  
+  valid, tags = verify_board(score_map, minefield)
+  if completion_tags.COMPLETE in tags:
+    completion_counts["COMPLETE"] += 1
+  if completion_tags.INVALID_FLAG in tags:
+    completion_counts["INVALID_FLAG"] += 1
+  if completion_tags.INCOMPLETE in tags:
+    completion_counts["INCOMPLETE"] += 1
 
-    print(row)
+  if not MUTE_INTERMEDIATE_PRINTS:
+    # Print grid nicely
+    for row in minefield:
+      print('  '.join(str(cell) for cell in row))
+    print()
+    for row in score_map:
+      print('  '.join(str(cell) for cell in row))
+    print()
+    for x in range(MAP_X):
+      row = ''
+      for y in range(MAP_Y):
+        if (x,y) in mine_positions:
+          if score_map[x][y] == "*" and minefield[x][y] == 1:
+            row += f"  *"
+          else:
+            row += f"  X"
+        elif (x,y) == (start_position_x, start_position_y):
+          row += f"  !"
+        else:
+          row += f"  {score_map[x][y]}"
+
+      print(row)
         
      
 
@@ -338,14 +399,13 @@ for index in range(test_count):
   for row in minefield:
     for cell in row:
       mc += cell
-  print(f'{mc} mines')
+  if not MUTE_INTERMEDIATE_PRINTS:
+    print(f'{mc} mines')
 
   if mc == MINE_COUNT:
     verif_count += 1
 
-print(f'{verif_count}/{test_count} passed')
-
-#chagtp rendering
-
-
-render_board(score_map,MAP_X,MAP_Y)
+print(f'{verif_count}/{test_count} valid mine placement')
+print(f"{completion_counts['COMPLETE']}/{test_count}, {completion_counts['COMPLETE']/test_count*100}% completed successfully")
+print(f"{completion_counts['INCOMPLETE']}/{test_count}, {completion_counts['INCOMPLETE']/test_count*100}% finished incomplete")
+print(f"{completion_counts['INVALID_FLAG']}/{test_count}, {completion_counts['INVALID_FLAG']/test_count*100}% finished with invalid flags")
