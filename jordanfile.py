@@ -13,9 +13,9 @@ MUTE_INTERMEDIATE_PRINTS = True
 # SETTINGS!!!!!!!!
 #################################################################
 MINE_DENSITY = 0.1                           #percentage as decimal, ie 10% = 0.1
-MAP_X = 30                                   #the game
-MAP_Y = 30
-TEST_COUNT = 10000
+MAP_X = 30                                   #the game width in cells
+MAP_Y = 30                                   #the game height in cells
+TEST_COUNT = 10000                           #the number of minesweeper games to attempt to play
 
 #"comment lines" via adding a # before your "comment"
 #the below line uses the mine density and map size to calculate a number of mines that is the density as specified
