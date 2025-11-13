@@ -8,15 +8,36 @@ from tqdm import tqdm
 #DEBUGGING
 DEBUGGING = False
 MUTE_INTERMEDIATE_PRINTS = True
-# Example usage
-MINE_DENSITY = 0.1
 
-MAP_X = 30
+#################################################################
+# SETTINGS!!!!!!!!
+#################################################################
+MINE_DENSITY = 0.1                           #percentage as decimal, ie 10% = 0.1
+MAP_X = 30                                   #the game
 MAP_Y = 30
-MINE_COUNT = int(MAP_X*MAP_Y*MINE_DENSITY)
-#MINE_COUNT = 1
-test_count = 10000
+TEST_COUNT = 10000
 
+#"comment lines" via adding a # before your "comment"
+#the below line uses the mine density and map size to calculate a number of mines that is the density as specified
+MINE_COUNT = int(MAP_X*MAP_Y*MINE_DENSITY)
+
+#comment out the above "MINE_COUNT" and uncomment the below "MINE_COUNT" to select a specific number of mines
+#MINE_COUNT = 10
+#################################################################
+# SETTINGS!!!!!!!!
+#################################################################
+
+#i'll make UI for this eventually :sob:
+
+
+
+
+
+
+
+
+
+#below is code! i dont believe there are any valuable things to change down here for you, but let me know if youd like another variable!
 
 
 DIRECTIONS = [
@@ -358,7 +379,7 @@ completion_counts = {
   "INCOMPLETE" : 0
 }
 
-for index in tqdm(range(test_count),desc="games simulated"):
+for index in tqdm(range(TEST_COUNT),desc="games simulated"):
   minefield, start_position_x, start_position_y,mine_positions = generate_minefield(MAP_X, MAP_Y, MINE_COUNT)
   solved_minefield, is_5050, score_map = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y)
   
@@ -405,7 +426,7 @@ for index in tqdm(range(test_count),desc="games simulated"):
   if mc == MINE_COUNT:
     verif_count += 1
 
-print(f'{verif_count}/{test_count} valid mine placement')
-print(f"{completion_counts['COMPLETE']}/{test_count}, {completion_counts['COMPLETE']/test_count*100}% completed successfully")
-print(f"{completion_counts['INCOMPLETE']}/{test_count}, {completion_counts['INCOMPLETE']/test_count*100}% finished incomplete")
-print(f"{completion_counts['INVALID_FLAG']}/{test_count}, {completion_counts['INVALID_FLAG']/test_count*100}% finished with invalid flags")
+print(f'{verif_count}/{TEST_COUNT} valid mine placement')
+print(f"{completion_counts['COMPLETE']}/{TEST_COUNT}, {completion_counts['COMPLETE']/TEST_COUNT*100}% completed successfully")
+print(f"{completion_counts['INCOMPLETE']}/{TEST_COUNT}, {completion_counts['INCOMPLETE']/TEST_COUNT*100}% finished incomplete")
+print(f"{completion_counts['INVALID_FLAG']}/{TEST_COUNT}, {completion_counts['INVALID_FLAG']/TEST_COUNT*100}% finished with invalid flags")
