@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from enum import Enum
 from tqdm import tqdm
+from sympy import symbols, Symbol, Eq, solve, Add
+from typing import Optional, Union
 
 #DEBUGGING
 DEBUGGING = False
@@ -13,10 +15,10 @@ MUTE_INTERMEDIATE_PRINTS = True
 # SETTINGS!!!!!!!!
 #################################################################
 MINE_DENSITY = 0.1                           #percentage as decimal, ie 10% = 0.1
-MAP_X = 30                                   #the game width in cells
-MAP_Y = 30                                   #the game height in cells
-TEST_COUNT = 10000                           #the number of minesweeper games to attempt to play
-
+MAP_X = 10                                   #the game width in cells
+MAP_Y = 10                                   #the game height in cells
+TEST_COUNT = 1000                         #the number of minesweeper games to attempt to play
+SHOW_RESULT_OF_EACH_GAME = False             #will pop up a window showing the end of each match
 #"comment lines" via adding a # before your "comment"
 #the below line uses the mine density and map size to calculate a number of mines that is the density as specified
 MINE_COUNT = int(MAP_X*MAP_Y*MINE_DENSITY)
@@ -157,6 +159,44 @@ def delta_text_map(start_x, start_y, map_x,map_y,score_map):
 
       print(row)
 
+
+
+
+
+
+
+
+
+class mine_analysis_identity:
+  def __init__(self,mines_around,flags_around_count,blank_cell_coordinates : list[tuple[int,int]]) -> None:
+
+    #MINES_AROUND - FLAGS_AROUND
+    self.mine_count = mines_around - flags_around_count
+
+    #list of adjaent blanks
+    self.potential_cell_coordinate_list : list[tuple[int,int]] = blank_cell_coordinates.copy()
+
+    self.symbols : list[Symbol] = []
+  def has_cell(self,coordinate : tuple[int,int]):
+    if coordinate in self.potential_cell_coordinate_list:
+      return True
+    return False
+  
+  def construct_constraint(self,coordinate_to_symbol : dict[tuple[int,int],Symbol]):
+    for cell in self.potential_cell_coordinate_list:
+      self.symbols.append(coordinate_to_symbol[cell])
+  
+
+
+
+
+
+
+
+
+
+
+
 #solves from 0 spread
 def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_position_y):
   is_5050 = False
@@ -261,70 +301,187 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
   zero_spread_from_position((start_position_x,start_position_y))
 
   #solving!
-  changes_last_step = len(discovered_incomplete_coordinates)
-  while changes_last_step > 0:
-    changes_last_step = 0
-    last_square_unchanged = True
+  
 
-    for coordinate_tuple in discovered_incomplete_coordinates.copy():
-      #debug
-      if not last_square_unchanged and DEBUGGING:
-        delta_text_map(start_position_x,start_position_y,map_x,map_y,scored_map)
-        print()
-        render_board(scored_map,MAP_X,MAP_Y)
+  def basic_solve_loop():
+    nonlocal changes_last_step
+    nonlocal discovered_incomplete_coordinates
+    nonlocal scored_map
+
+    changes_last_step = len(discovered_incomplete_coordinates)
+
+    while changes_last_step > 0:
+      changes_last_step = 0
       last_square_unchanged = True
-      current_score = get_mines_around(coordinate_tuple[0], coordinate_tuple[1])
-      blanks_around, blanks_coordinate_list = get_empty_cells_around(coordinate_tuple[0], coordinate_tuple[1])
-      flags_around = get_flags_around(coordinate_tuple[0], coordinate_tuple[1])
 
-      #solved all around by nearby's
-      if blanks_around == 0:
-        changes_last_step += 1
-        discovered_incomplete_coordinates.remove(coordinate_tuple)
+      for coordinate_tuple in discovered_incomplete_coordinates.copy():
         #debug
-        last_square_unchanged = False
-        continue
-       
-      #if there are only the number of blanks around or
-      #if there are only the number of flag + blanks
-      if ((current_score == blanks_around) and (0 == flags_around)) or (current_score - flags_around == blanks_around):
-        if not MUTE_INTERMEDIATE_PRINTS:
-          print(f'{coordinate_tuple[0]},{coordinate_tuple[1]}, C={current_score}, F={flags_around}, B={blanks_around}')
-        for blank_coordinate_tuple in blanks_coordinate_list:
-          #flag blanks
-          scored_map[blank_coordinate_tuple[0]][blank_coordinate_tuple[1]] = '*'
+        if not last_square_unchanged and DEBUGGING:
+          delta_text_map(start_position_x,start_position_y,map_x,map_y,scored_map)
+          print()
+          render_board(scored_map,MAP_X,MAP_Y)
+        last_square_unchanged = True
+        current_score = get_mines_around(coordinate_tuple[0], coordinate_tuple[1])
+        blanks_around, blanks_coordinate_list = get_empty_cells_around(coordinate_tuple[0], coordinate_tuple[1])
+        flags_around = get_flags_around(coordinate_tuple[0], coordinate_tuple[1])
 
-        changes_last_step += 1
-        discovered_incomplete_coordinates.remove(coordinate_tuple)
-        #debug
-        last_square_unchanged = False
-        continue
+        #solved all around by nearby's
+        if blanks_around == 0:
+          changes_last_step += 1
+          discovered_incomplete_coordinates.remove(coordinate_tuple)
+          #debug
+          last_square_unchanged = False
+          continue
+        
+        #if there are only the number of blanks around or
+        #if there are only the number of flag + blanks
+        if ((current_score == blanks_around) and (0 == flags_around)) or (current_score - flags_around == blanks_around):
+          if not MUTE_INTERMEDIATE_PRINTS:
+            print(f'{coordinate_tuple[0]},{coordinate_tuple[1]}, C={current_score}, F={flags_around}, B={blanks_around}')
+          for blank_coordinate_tuple in blanks_coordinate_list:
+            #flag blanks
+            scored_map[blank_coordinate_tuple[0]][blank_coordinate_tuple[1]] = '*'
+
+          changes_last_step += 1
+          discovered_incomplete_coordinates.remove(coordinate_tuple)
+          #debug
+          last_square_unchanged = False
+          continue
+        
+        if flags_around == current_score and blanks_around > 0:
+          for blank_coordinate_tuple in blanks_coordinate_list:
+            mines_around_local = get_mines_around(blank_coordinate_tuple[0],blank_coordinate_tuple[1])
+            scored_map[blank_coordinate_tuple[0]][blank_coordinate_tuple[1]] = mines_around_local
+            if blank_coordinate_tuple not in discovered_incomplete_coordinates:
+              if mines_around_local == 0:
+                zero_spread_from_position(blank_coordinate_tuple)
+              else:
+                discovered_incomplete_coordinates.append((blank_coordinate_tuple[0],blank_coordinate_tuple[1]))
+              
+
+          changes_last_step += 1
+          discovered_incomplete_coordinates.remove(coordinate_tuple)
+
+          #debug
+          last_square_unchanged = False
+          continue
+  def simultaneous_solver():
+    identity_list : list[mine_analysis_identity] = []
+    blanks_to_analyse : list[tuple[int,int]] = []
+    blank_symbol_to_coordinate : dict[Symbol, tuple[int,int]] = {}
+    coordinate_to_blank_symbol : dict[tuple[int,int], Symbol] = {}
+
+    for cell in discovered_incomplete_coordinates.copy():
+      flags_around_cell = get_flags_around(cell[0],cell[1])
+      mines_around_cell = get_mines_around(cell[0],cell[1])
+      blank_around_count, blank_around_list = get_empty_cells_around(cell[0],cell[1])
+
+      cell_identity = mine_analysis_identity(mines_around_cell,flags_around_cell,blank_around_list)
+      identity_list.append(cell_identity)
+
+      for blank in blank_around_list:
+        if blank not in blanks_to_analyse:
+          blanks_to_analyse.append(blank)
+          symbol = symbols(str(len(blanks_to_analyse)), integer = True)
+          blank_symbol_to_coordinate[symbol] = blank
+          coordinate_to_blank_symbol[blank] = symbol
+
+      cell_identity.construct_constraint(coordinate_to_blank_symbol)
+
+    equations = []
+    for identity in identity_list:
+      expression = Add(*identity.symbols) # pyright: ignore[reportPossiblyUnboundVariable]
+      equations.append(Eq(expression,identity.mine_count))
+
+    solution = solve(equations, dict=True)
+
+    if not solution:
+      return False, None
+    
+    sol = solution[0]
+
+    deduced = {}
+
+    for var, val in sol.items():
+      try:
+        numeric = int(val)
+        if numeric in (0, 1):
+            deduced[blank_symbol_to_coordinate[var]] = numeric
+      except:
+          continue
       
-      if flags_around == current_score and blanks_around > 0:
-        for blank_coordinate_tuple in blanks_coordinate_list:
-          mines_around_local = get_mines_around(blank_coordinate_tuple[0],blank_coordinate_tuple[1])
-          scored_map[blank_coordinate_tuple[0]][blank_coordinate_tuple[1]] = mines_around_local
-          if blank_coordinate_tuple not in discovered_incomplete_coordinates:
-            if mines_around_local == 0:
-              zero_spread_from_position(blank_coordinate_tuple)
+    return len(deduced)>0, deduced
+    
+
+
+    
+
+      
+
+    
+
+
+
+    
+
+
+
+    
+
+  def cell_probability_analysis():
+    pass
+  
+  not_sim_res = False
+  simultaneous_solution_contribution = False
+  def main_solve_loop():
+    nonlocal discovered_incomplete_coordinates
+    nonlocal scored_map
+    nonlocal simultaneous_solution_contribution
+    nonlocal not_sim_res
+    solved = False
+    while not (solved):
+      #print(solving_count)
+      basic_solve_loop()
+      #if there are unsolved cells
+      if len(discovered_incomplete_coordinates) != 0:
+        #print("a")
+        simultaneous_resolved, deduced = simultaneous_solver()
+
+        if simultaneous_resolved == False:
+          not_sim_res = True
+          #print('b')
+          cell_coordinate_by_probability = cell_probability_analysis()
+          #check if 50/50's
+          solved = True
+          break
+        elif simultaneous_resolved == True:
+          simultaneous_solution_contribution = True
+          #if deduced == None: # type: ignore
+
+          for coordinate, is_mine in deduced.items(): # type: ignore
+            if DEBUGGING:
+              print(f'{type(coordinate)}, {coordinate}, :: {type(is_mine)}, {is_mine}')
+            #discovered_incomplete_coordinates.remove(coordinate)
+            if is_mine:
+              scored_map[coordinate[0]][coordinate[1]] = '*'
             else:
-              discovered_incomplete_coordinates.append((blank_coordinate_tuple[0],blank_coordinate_tuple[1]))
-            
+              scored_map[coordinate[0]][coordinate[1]] = get_mines_around(coordinate[0],coordinate[1])
+              discovered_incomplete_coordinates.append((coordinate[0],coordinate[1]))
+      else:
+        solved = True
 
-        changes_last_step += 1
-        discovered_incomplete_coordinates.remove(coordinate_tuple)
+  
+  main_solve_loop()
 
-        #debug
-        last_square_unchanged = False
-        continue
 
-    
+
+
 
     
       
 
 
-  return mutated_minefield, is_5050, scored_map
+  return mutated_minefield, is_5050, scored_map,discovered_incomplete_coordinates, simultaneous_solution_contribution, not_sim_res
 
 class completion_tags(Enum):
   INCOMPLETE = 0
@@ -376,20 +533,32 @@ verif_count = 0
 completion_counts = {
   "COMPLETE" : 0,
   "INVALID_FLAG" : 0,
-  "INCOMPLETE" : 0
+  "INCOMPLETE" : 0,
+  "COMPLETE_WITH_ZERO_UNDISCOVERED" : 0,
+  "SIMULTANEOUS_SOLVER_CONTRIBUTION" : 0,
+  "SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE" : 0
 }
 
-for index in tqdm(range(TEST_COUNT),desc="games simulated"):
+for index in tqdm(range(TEST_COUNT),desc="games simulated", unit=" games"):
   minefield, start_position_x, start_position_y,mine_positions = generate_minefield(MAP_X, MAP_Y, MINE_COUNT)
-  solved_minefield, is_5050, score_map = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y)
+  solved_minefield, is_5050, score_map,dico,sim_sol_contr, not_sim_res = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y)
   
   valid, tags = verify_board(score_map, minefield)
   if completion_tags.COMPLETE in tags:
     completion_counts["COMPLETE"] += 1
+    if len(dico) == 0:
+      completion_counts["COMPLETE_WITH_ZERO_UNDISCOVERED"] += 1
   if completion_tags.INVALID_FLAG in tags:
     completion_counts["INVALID_FLAG"] += 1
   if completion_tags.INCOMPLETE in tags:
     completion_counts["INCOMPLETE"] += 1
+  if sim_sol_contr:
+    completion_counts["SIMULTANEOUS_SOLVER_CONTRIBUTION"] += 1
+  if not_sim_res:
+    completion_counts["SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE"] += 1
+  
+  if SHOW_RESULT_OF_EACH_GAME:
+    render_board(score_map,MAP_X,MAP_Y)
 
   if not MUTE_INTERMEDIATE_PRINTS:
     # Print grid nicely
@@ -428,5 +597,9 @@ for index in tqdm(range(TEST_COUNT),desc="games simulated"):
 
 print(f'{verif_count}/{TEST_COUNT} valid mine placement')
 print(f"{completion_counts['COMPLETE']}/{TEST_COUNT}, {completion_counts['COMPLETE']/TEST_COUNT*100}% completed successfully")
+print(f"{completion_counts['COMPLETE_WITH_ZERO_UNDISCOVERED']}/{TEST_COUNT}, {completion_counts['COMPLETE_WITH_ZERO_UNDISCOVERED']/completion_counts['COMPLETE']*100}% of complete games completed without undiscovered successfully")
+print(f"{completion_counts['SIMULTANEOUS_SOLVER_CONTRIBUTION']}/{TEST_COUNT}, {completion_counts['SIMULTANEOUS_SOLVER_CONTRIBUTION']/TEST_COUNT*100}% used simultaneous")
+
 print(f"{completion_counts['INCOMPLETE']}/{TEST_COUNT}, {completion_counts['INCOMPLETE']/TEST_COUNT*100}% finished incomplete")
 print(f"{completion_counts['INVALID_FLAG']}/{TEST_COUNT}, {completion_counts['INVALID_FLAG']/TEST_COUNT*100}% finished with invalid flags")
+print(f"{completion_counts['SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE']}/{TEST_COUNT}, {completion_counts['SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE']/TEST_COUNT*100}% SIMULTANEOUS FAILED")
