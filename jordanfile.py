@@ -1,11 +1,13 @@
 import random
 import numpy
+from math import prod
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from enum import Enum
 from tqdm import tqdm
 from sympy import symbols, Symbol, Eq, solve, Add
 from typing import Optional, Union
+from collections import deque
 
 #DEBUGGING
 DEBUGGING = False
@@ -17,7 +19,7 @@ MUTE_INTERMEDIATE_PRINTS = True
 MINE_DENSITY = 0.1                           #percentage as decimal, ie 10% = 0.1
 MAP_X = 10                                   #the game width in cells
 MAP_Y = 10                                   #the game height in cells
-TEST_COUNT = 1000                         #the number of minesweeper games to attempt to play
+TEST_COUNT = 10000                         #the number of minesweeper games to attempt to play
 SHOW_RESULT_OF_EACH_GAME = False             #will pop up a window showing the end of each match
 #"comment lines" via adding a # before your "comment"
 #the below line uses the mine density and map size to calculate a number of mines that is the density as specified
@@ -202,7 +204,6 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
   is_5050 = False
   mutated_minefield = minefield_array
   scored_map = numpy.full((map_x, map_y), 'N', dtype=object)
-  bombed_map = numpy.full((map_x, map_y), 'N', dtype=object)
   already_spread_map = numpy.zeros((map_x, map_y), dtype=int)
 
   #will be init with the 0 spread discovered non 0's
@@ -217,18 +218,21 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
   last_step_solved_coordinates.append((start_position_x, start_position_y))
 
   #ie discovered cells that still have undiscovered mines around them
-  discovered_incomplete_coordinates : list[tuple[int, int]] = []
+  discovered_incomplete_coordinates : set[tuple[int, int]] = set()
+
+  mines_around_cache : dict[tuple[int,int],int] = {}
 
   def get_mines_around(x,y):
-    nonlocal scored_map
-    mines = 0
-    for dx, dy in DIRECTIONS:
-      nx, ny = x + dx, y + dy
-      if 0 <= nx < map_x and 0 <= ny < map_y:
-        if minefield_array[nx][ny] == 1:
-          mines += 1
-          bombed_map[nx][ny] = "*"
-    return mines
+    if (x,y) not in mines_around_cache:
+      mines = 0
+      for dx, dy in DIRECTIONS:
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < map_x and 0 <= ny < map_y:
+          if minefield_array[nx][ny] == 1:
+            mines += 1
+      mines_around_cache[(x,y)] = mines
+      return mines
+    return mines_around_cache[(x,y)]
   
   def get_flags_around(x,y):
     nonlocal scored_map
@@ -252,47 +256,35 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
           blank_coordinate_list.append((nx,ny))
     return blanks, blank_coordinate_list
   
-  def zero_spread_from_position(position : tuple[int,int]):
-    changes_last_step = 1
-    zero_spread_last_step_solved_coordinates : list[tuple[int, int]] = []
-    zero_spread_last_step_solved_coordinates.append(position)
+  def zero_spread_from_position(position: tuple[int, int]):
+    queue = deque([position])
+    already_spread_set = set()  # track coordinates we've already processed
 
-    while changes_last_step > 0:
-      changes_last_step = 0
-      next_step_coordinates : list[tuple[int, int]] = []
+    while queue:
+        x, y = queue.popleft()
 
+        if (x, y) in already_spread_set:
+            continue
+        already_spread_set.add((x, y))
 
-
-      #where x = [0] and y = [1]
-      for coordinate_tuple in zero_spread_last_step_solved_coordinates:
         current_location_mine_score = 0
+
         for dx, dy in DIRECTIONS:
-          nx, ny = coordinate_tuple[0] + dx, coordinate_tuple[1] + dy
-          if 0 <= nx < map_x and 0 <= ny < map_y:
-            if minefield_array[nx][ny] == 1:
-                current_location_mine_score += 1
-                bombed_map[nx][ny] = "*"
-            elif already_spread_map[nx][ny] == 0:
-              mine_count = get_mines_around(nx, ny)
-              if mine_count == 0:
-                if (nx,ny) not in next_step_coordinates:
-                  next_step_coordinates.append((nx, ny))
-                  changes_last_step += 1
-              else:
-                scored_map[nx][ny] = mine_count
-                bombed_map[nx][ny] = mine_count
-                if (nx,ny) not in discovered_incomplete_coordinates:
-                  discovered_incomplete_coordinates.append((nx,ny))
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < map_x and 0 <= ny < map_y:
+                if minefield_array[nx][ny] == 1:
+                    current_location_mine_score += 1
+                elif already_spread_map[nx][ny] == 0:
+                    mine_count = get_mines_around(nx, ny)
+                    if mine_count == 0 and (nx, ny) not in already_spread_set:
+                        queue.append((nx, ny))
+                    else:
+                        scored_map[nx][ny] = mine_count
+                        discovered_incomplete_coordinates.add((nx, ny))  # use set for speed
 
-        already_spread_map[coordinate_tuple[0]][coordinate_tuple[1]] = 1
-        scored_map[coordinate_tuple[0]][coordinate_tuple[1]] = current_location_mine_score
-        bombed_map[coordinate_tuple[0]][coordinate_tuple[1]] = current_location_mine_score
-
-
-
-      zero_spread_last_step_solved_coordinates.clear()
-      zero_spread_last_step_solved_coordinates = next_step_coordinates.copy()
-      next_step_coordinates.clear()
+        # Mark current cell as spread
+        already_spread_map[x][y] = 1
+        scored_map[x][y] = current_location_mine_score
   
 
   # 0 spread from init guess
@@ -316,14 +308,15 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
 
       for coordinate_tuple in discovered_incomplete_coordinates.copy():
         #debug
+        x,y = coordinate_tuple[0],coordinate_tuple[1]
         if not last_square_unchanged and DEBUGGING:
           delta_text_map(start_position_x,start_position_y,map_x,map_y,scored_map)
           print()
           render_board(scored_map,MAP_X,MAP_Y)
         last_square_unchanged = True
-        current_score = get_mines_around(coordinate_tuple[0], coordinate_tuple[1])
-        blanks_around, blanks_coordinate_list = get_empty_cells_around(coordinate_tuple[0], coordinate_tuple[1])
-        flags_around = get_flags_around(coordinate_tuple[0], coordinate_tuple[1])
+        current_score = get_mines_around(x, y)
+        blanks_around, blanks_coordinate_list = get_empty_cells_around(x, y)
+        flags_around = get_flags_around(x, y)
 
         #solved all around by nearby's
         if blanks_around == 0:
@@ -335,12 +328,12 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
         
         #if there are only the number of blanks around or
         #if there are only the number of flag + blanks
-        if ((current_score == blanks_around) and (0 == flags_around)) or (current_score - flags_around == blanks_around):
+        if current_score - flags_around == blanks_around:
           if not MUTE_INTERMEDIATE_PRINTS:
-            print(f'{coordinate_tuple[0]},{coordinate_tuple[1]}, C={current_score}, F={flags_around}, B={blanks_around}')
-          for blank_coordinate_tuple in blanks_coordinate_list:
+            print(f'{x},{y}, C={current_score}, F={flags_around}, B={blanks_around}')
+          for x,y in blanks_coordinate_list:
             #flag blanks
-            scored_map[blank_coordinate_tuple[0]][blank_coordinate_tuple[1]] = '*'
+            scored_map[x][y] = '*'
 
           changes_last_step += 1
           discovered_incomplete_coordinates.remove(coordinate_tuple)
@@ -349,14 +342,14 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
           continue
         
         if flags_around == current_score and blanks_around > 0:
-          for blank_coordinate_tuple in blanks_coordinate_list:
-            mines_around_local = get_mines_around(blank_coordinate_tuple[0],blank_coordinate_tuple[1])
-            scored_map[blank_coordinate_tuple[0]][blank_coordinate_tuple[1]] = mines_around_local
-            if blank_coordinate_tuple not in discovered_incomplete_coordinates:
+          for x,y in blanks_coordinate_list:
+            mines_around_local = get_mines_around(x,y)
+            scored_map[x][y] = mines_around_local
+            if (x,y) not in discovered_incomplete_coordinates:
               if mines_around_local == 0:
-                zero_spread_from_position(blank_coordinate_tuple)
+                zero_spread_from_position((x,y))
               else:
-                discovered_incomplete_coordinates.append((blank_coordinate_tuple[0],blank_coordinate_tuple[1]))
+                discovered_incomplete_coordinates.add((x,y))
               
 
           changes_last_step += 1
@@ -367,21 +360,22 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
           continue
   def simultaneous_solver():
     identity_list : list[mine_analysis_identity] = []
-    blanks_to_analyse : list[tuple[int,int]] = []
+    blanks_to_analyse : set[tuple[int,int]] = set()
     blank_symbol_to_coordinate : dict[Symbol, tuple[int,int]] = {}
     coordinate_to_blank_symbol : dict[tuple[int,int], Symbol] = {}
 
     for cell in discovered_incomplete_coordinates.copy():
-      flags_around_cell = get_flags_around(cell[0],cell[1])
-      mines_around_cell = get_mines_around(cell[0],cell[1])
-      blank_around_count, blank_around_list = get_empty_cells_around(cell[0],cell[1])
+      x,y = cell[0],cell[1]
+      flags_around_cell = get_flags_around(x,y)
+      mines_around_cell = get_mines_around(x,y)
+      blank_around_count, blank_around_list = get_empty_cells_around(x,y)
 
       cell_identity = mine_analysis_identity(mines_around_cell,flags_around_cell,blank_around_list)
       identity_list.append(cell_identity)
 
       for blank in blank_around_list:
         if blank not in blanks_to_analyse:
-          blanks_to_analyse.append(blank)
+          blanks_to_analyse.add(blank)
           symbol = symbols(str(len(blanks_to_analyse)), integer = True)
           blank_symbol_to_coordinate[symbol] = blank
           coordinate_to_blank_symbol[blank] = symbol
@@ -429,15 +423,46 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
     
 
   def cell_probability_analysis():
-    pass
+    probability_frequencies : dict[float, int] = {}
+
+    adjacent_unsolved_cells : dict[tuple[int,int],list[float]] = {}
+
+    for cell in discovered_incomplete_coordinates:
+      x = cell[0]
+      y = cell[1]
+      mine_count = get_mines_around(x,y) - get_flags_around(x,y)
+      blank_count, blank_list = get_empty_cells_around(x,y)
+      for blank in blank_list:
+        if blank not in adjacent_unsolved_cells:
+          adjacent_unsolved_cells[blank] = []
+        adjacent_unsolved_cells[blank].append(1- (mine_count/blank_count))
+
+    final_probability_by_cell : dict[tuple[int,int], float] = {}
+    for cell in adjacent_unsolved_cells:
+      final_probability = 1 - prod(adjacent_unsolved_cells[cell])
+      final_probability_by_cell[cell] = final_probability
+      if final_probability not in probability_frequencies:
+        probability_frequencies[final_probability] = 0
+      probability_frequencies[final_probability] += 1
+    
+    return final_probability_by_cell, probability_frequencies
+
+
+
+
   
   not_sim_res = False
   simultaneous_solution_contribution = False
+  final_probability_by_cell : dict[tuple[int,int], float] = {}
+  probability_frequencies : dict[float, int] = {}
+
   def main_solve_loop():
     nonlocal discovered_incomplete_coordinates
     nonlocal scored_map
     nonlocal simultaneous_solution_contribution
     nonlocal not_sim_res
+    nonlocal final_probability_by_cell
+    nonlocal probability_frequencies
     solved = False
     while not (solved):
       #print(solving_count)
@@ -450,7 +475,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
         if simultaneous_resolved == False:
           not_sim_res = True
           #print('b')
-          cell_coordinate_by_probability = cell_probability_analysis()
+          final_probability_by_cell,probability_frequencies = cell_probability_analysis()
           #check if 50/50's
           solved = True
           break
@@ -466,7 +491,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
               scored_map[coordinate[0]][coordinate[1]] = '*'
             else:
               scored_map[coordinate[0]][coordinate[1]] = get_mines_around(coordinate[0],coordinate[1])
-              discovered_incomplete_coordinates.append((coordinate[0],coordinate[1]))
+              discovered_incomplete_coordinates.add((coordinate[0],coordinate[1]))
       else:
         solved = True
 
@@ -481,7 +506,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
       
 
 
-  return mutated_minefield, is_5050, scored_map,discovered_incomplete_coordinates, simultaneous_solution_contribution, not_sim_res
+  return mutated_minefield, is_5050, scored_map,discovered_incomplete_coordinates, simultaneous_solution_contribution, not_sim_res,final_probability_by_cell,probability_frequencies
 
 class completion_tags(Enum):
   INCOMPLETE = 0
@@ -536,12 +561,13 @@ completion_counts = {
   "INCOMPLETE" : 0,
   "COMPLETE_WITH_ZERO_UNDISCOVERED" : 0,
   "SIMULTANEOUS_SOLVER_CONTRIBUTION" : 0,
-  "SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE" : 0
+  "SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE" : 0,
+  "STALLED_AT_5050_NOT_END" : 0
 }
 
 for index in tqdm(range(TEST_COUNT),desc="games simulated", unit=" games"):
   minefield, start_position_x, start_position_y,mine_positions = generate_minefield(MAP_X, MAP_Y, MINE_COUNT)
-  solved_minefield, is_5050, score_map,dico,sim_sol_contr, not_sim_res = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y)
+  solved_minefield, is_5050, score_map,dico,sim_sol_contr, not_sim_res,final_probability_by_cell,probability_frequencies = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y)
   
   valid, tags = verify_board(score_map, minefield)
   if completion_tags.COMPLETE in tags:
@@ -556,6 +582,8 @@ for index in tqdm(range(TEST_COUNT),desc="games simulated", unit=" games"):
     completion_counts["SIMULTANEOUS_SOLVER_CONTRIBUTION"] += 1
   if not_sim_res:
     completion_counts["SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE"] += 1
+  if 0.5 in probability_frequencies:
+    completion_counts["STALLED_AT_5050_NOT_END"] += 1
   
   if SHOW_RESULT_OF_EACH_GAME:
     render_board(score_map,MAP_X,MAP_Y)
@@ -603,3 +631,4 @@ print(f"{completion_counts['SIMULTANEOUS_SOLVER_CONTRIBUTION']}/{TEST_COUNT}, {c
 print(f"{completion_counts['INCOMPLETE']}/{TEST_COUNT}, {completion_counts['INCOMPLETE']/TEST_COUNT*100}% finished incomplete")
 print(f"{completion_counts['INVALID_FLAG']}/{TEST_COUNT}, {completion_counts['INVALID_FLAG']/TEST_COUNT*100}% finished with invalid flags")
 print(f"{completion_counts['SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE']}/{TEST_COUNT}, {completion_counts['SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE']/TEST_COUNT*100}% SIMULTANEOUS FAILED")
+print(f"{completion_counts['STALLED_AT_5050_NOT_END']}/{TEST_COUNT}, {completion_counts['STALLED_AT_5050_NOT_END']/TEST_COUNT*100}% STALLED_AT_5050_NOT_END")
