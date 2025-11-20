@@ -17,9 +17,9 @@ MUTE_INTERMEDIATE_PRINTS = True
 # SETTINGS!!!!!!!!
 #################################################################
 MINE_DENSITY = 0.1                           #percentage as decimal, ie 10% = 0.1
-MAP_X = 10                                   #the game width in cells
-MAP_Y = 10                                   #the game height in cells
-TEST_COUNT = 10000                         #the number of minesweeper games to attempt to play
+MAP_X = 100                                   #the game width in cells
+MAP_Y = 100                                   #the game height in cells
+TEST_COUNT = 1000                         #the number of minesweeper games to attempt to play
 SHOW_RESULT_OF_EACH_GAME = False             #will pop up a window showing the end of each match
 #"comment lines" via adding a # before your "comment"
 #the below line uses the mine density and map size to calculate a number of mines that is the density as specified
@@ -51,7 +51,7 @@ DIRECTIONS = [
   ]
 
 def generate_minefield(map_x, map_y, mine_count):
-    minefield_array = numpy.zeros((map_x, map_y), dtype=int)
+    minefield_map = numpy.zeros((map_x, map_y), dtype=int)
     
     total_cells = map_x * map_y
     if mine_count > total_cells:
@@ -72,12 +72,12 @@ def generate_minefield(map_x, map_y, mine_count):
       position_x = random.randint(0,map_x-1)
       position_y = random.randint(0,map_y-1)
 
-      if (minefield_array[position_x][position_y] == 0) and (not ((position_x,position_y) in invalid_mine_positions)):
-        minefield_array[position_x][position_y] = 1
+      if (minefield_map[position_x][position_y] == 0) and (not ((position_x,position_y) in invalid_mine_positions)):
+        minefield_map[position_x][position_y] = 1
         mines_to_place -= 1
         mine_positions.append((position_x,position_y))
 
-    return minefield_array, start_position_x, start_position_y, mine_positions
+    return minefield_map, start_position_x, start_position_y, mine_positions
 
 import numpy
 import matplotlib.pyplot as plt
@@ -200,11 +200,12 @@ class mine_analysis_identity:
 
 
 #solves from 0 spread
-def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_position_y):
-  is_5050 = False
-  mutated_minefield = minefield_array
+def solve_minefield(minefield_map, map_x, map_y, start_position_x, start_position_y,mine_positions):
+  tags : set[completion_tags] = set()
   scored_map = numpy.full((map_x, map_y), 'N', dtype=object)
   already_spread_map = numpy.zeros((map_x, map_y), dtype=int)
+  solved_cell_count = 0
+  solved_cell_set : set[tuple[int,int]]= set()
 
   #will be init with the 0 spread discovered non 0's
   last_step_solved_map = numpy.zeros((map_x, map_y), dtype=int)
@@ -228,7 +229,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
       for dx, dy in DIRECTIONS:
         nx, ny = x + dx, y + dy
         if 0 <= nx < map_x and 0 <= ny < map_y:
-          if minefield_array[nx][ny] == 1:
+          if minefield_map[nx][ny] == 1:
             mines += 1
       mines_around_cache[(x,y)] = mines
       return mines
@@ -257,6 +258,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
     return blanks, blank_coordinate_list
   
   def zero_spread_from_position(position: tuple[int, int]):
+    nonlocal solved_cell_set
     queue = deque([position])
     already_spread_set = set()  # track coordinates we've already processed
 
@@ -272,11 +274,11 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
         for dx, dy in DIRECTIONS:
             nx, ny = x + dx, y + dy
             if 0 <= nx < map_x and 0 <= ny < map_y:
-                if minefield_array[nx][ny] == 1:
+                if minefield_map[nx][ny] == 1:
                     current_location_mine_score += 1
                 elif already_spread_map[nx][ny] == 0:
                     mine_count = get_mines_around(nx, ny)
-                    if mine_count == 0 and (nx, ny) not in already_spread_set:
+                    if (nx, ny) not in already_spread_set and mine_count == 0:
                         queue.append((nx, ny))
                     else:
                         scored_map[nx][ny] = mine_count
@@ -299,6 +301,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
     nonlocal changes_last_step
     nonlocal discovered_incomplete_coordinates
     nonlocal scored_map
+    nonlocal solved_cell_set
 
     changes_last_step = len(discovered_incomplete_coordinates)
 
@@ -322,6 +325,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
         if blanks_around == 0:
           changes_last_step += 1
           discovered_incomplete_coordinates.remove(coordinate_tuple)
+          solved_cell_set.add(coordinate_tuple)
           #debug
           last_square_unchanged = False
           continue
@@ -337,6 +341,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
 
           changes_last_step += 1
           discovered_incomplete_coordinates.remove(coordinate_tuple)
+          solved_cell_set.add(coordinate_tuple)
           #debug
           last_square_unchanged = False
           continue
@@ -354,6 +359,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
 
           changes_last_step += 1
           discovered_incomplete_coordinates.remove(coordinate_tuple)
+          solved_cell_set.add(coordinate_tuple)
 
           #debug
           last_square_unchanged = False
@@ -368,7 +374,7 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
       x,y = cell[0],cell[1]
       flags_around_cell = get_flags_around(x,y)
       mines_around_cell = get_mines_around(x,y)
-      blank_around_count, blank_around_list = get_empty_cells_around(x,y)
+      blank_around_list = get_empty_cells_around(x,y)[1]
 
       cell_identity = mine_analysis_identity(mines_around_cell,flags_around_cell,blank_around_list)
       identity_list.append(cell_identity)
@@ -451,18 +457,18 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
 
 
   
-  not_sim_res = False
-  simultaneous_solution_contribution = False
   final_probability_by_cell : dict[tuple[int,int], float] = {}
   probability_frequencies : dict[float, int] = {}
 
   def main_solve_loop():
     nonlocal discovered_incomplete_coordinates
     nonlocal scored_map
-    nonlocal simultaneous_solution_contribution
-    nonlocal not_sim_res
     nonlocal final_probability_by_cell
     nonlocal probability_frequencies
+    nonlocal mine_positions
+    nonlocal solved_cell_set
+    nonlocal map_x
+    nonlocal map_y
     solved = False
     while not (solved):
       #print(solving_count)
@@ -473,14 +479,65 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
         simultaneous_resolved, deduced = simultaneous_solver()
 
         if simultaneous_resolved == False:
-          not_sim_res = True
+          tags.add(completion_tags.SIMULTANEOUS_FAILED_TO_RESOLVE)
           #print('b')
+          #probability_frequencies is % to be a mine
           final_probability_by_cell,probability_frequencies = cell_probability_analysis()
-          #check if 50/50's
-          solved = True
-          break
+          lowest_mine_probability = min(probability_frequencies)
+          safest_coordinates = [k for k, v in final_probability_by_cell.items() if v == lowest_mine_probability]
+          first_safest_coordinate = safest_coordinates[0]
+          safest_x = first_safest_coordinate[0]
+          safest_y = first_safest_coordinate[1]
+          #IF 50/50
+          if lowest_mine_probability == 0.5:
+            #if final
+            if len(solved_cell_set) + len(discovered_incomplete_coordinates) + len(final_probability_by_cell) + len(mine_positions) == map_x*map_y:
+              # FINAL_STUCK_ONLY_AND_ONE_5050 = 5
+              # FINAL_STUCK_MULTIPLE_5050 = 6
+              # FINAL_STUCK_ONE_5050_AND_PROBABILITY_LESS_THAN_5050 = 9
+              # FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050 = 10
+              if len(probability_frequencies) == 1:
+                #only 5050's
+                if probability_frequencies[0.5] == 2: #bc 5050 would involve 2 cells
+                  #only onme
+                  tags.add(completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050)
+                else:
+                  #multiple
+                  tags.add(completion_tags.FINAL_STUCK_MULTIPLE_5050)
+              else:
+                # ONE 5050 and lesser probabilities
+                if probability_frequencies[0.5] == 2:#bc 5050 would involve 2 cells
+                  #only onme 5050
+                  tags.add(completion_tags.FINAL_STUCK_ONE_5050_AND_PROBABILITY_LESS_THAN_5050)
+                else:
+                  #multiple 5050
+                  tags.add(completion_tags.FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050)
+
+            else:
+              tags.add(completion_tags.MID_GAME_STUCK_5050)
+
+            # for tag in tags:
+            #   print(tag.name)
+            
+            # render_board(scored_map, map_x, map_y)
+            solved = True
+            break
+
+          #ELSE #guess the safest (or one of the safest at random)
+          if first_safest_coordinate in mine_positions:
+            #IF IS BOMB
+            tags.add(completion_tags.FAILED_BY_GUESSING_BOMB)
+            solved = True
+            break
+          else:
+            tags.add(completion_tags.SUCCESSFULLY_ELIMINATED_SOME_PROBABILITY_DURING_GAME)
+            scored_map[safest_x][safest_y] = get_mines_around(safest_x,safest_y)
+            discovered_incomplete_coordinates.add((safest_x,safest_y))
+
+
+
         elif simultaneous_resolved == True:
-          simultaneous_solution_contribution = True
+          tags.add(completion_tags.SIMULTANEOUS_SOLUTION_CONTRIBUTION)
           #if deduced == None: # type: ignore
 
           for coordinate, is_mine in deduced.items(): # type: ignore
@@ -506,20 +563,64 @@ def solve_minefield(minefield_array, map_x, map_y, start_position_x, start_posit
       
 
 
-  return mutated_minefield, is_5050, scored_map,discovered_incomplete_coordinates, simultaneous_solution_contribution, not_sim_res,final_probability_by_cell,probability_frequencies
+  return scored_map,discovered_incomplete_coordinates,final_probability_by_cell,probability_frequencies,tags, solved_cell_set
 
 class completion_tags(Enum):
-  INCOMPLETE = 0
-  INVALID_FLAG = 1
-  COMPLETE = 2
+  INCOMPLETE = 0 #DONE
+  INVALID_FLAG = 1 #DONE
+  COMPLETE = 2 #DONE
+  FAILED_BY_GUESSING_BOMB = 3 #DONE
+  MID_GAME_STUCK_5050 = 4 #DINE
+  FINAL_STUCK_ONLY_AND_ONE_5050 = 5
+  FINAL_STUCK_MULTIPLE_5050 = 6
+  FINAL_STUCK_ONE_5050_AND_PROBABILITY_LESS_THAN_5050 = 9
+  FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050 = 10
+  SIMULTANEOUS_SOLUTION_CONTRIBUTION = 7 # done
+  SIMULTANEOUS_FAILED_TO_RESOLVE = 8 #done
+  SUCCESSFULLY_ELIMINATED_SOME_PROBABILITY_DURING_GAME = 11
 
+class statistic:
+  def __init__(self, count, base, message, name = '') -> None:
+    self.count = count
+    self.base = base
+    self.message = message
+    self.name = name
 
+  def announce(self):
+    print(f"{self.count}/{self.base} : {self.count/self.base*100}% {self.message}")
 
-  
+verif_count = 0
+statistics : dict[str, statistic] = {}
+for tag in completion_tags:
+  statistics[tag.name] = statistic(0,0,'')
 
-def verify_board(board, minefield):
+statistics[completion_tags.COMPLETE.name].base = TEST_COUNT
+statistics[completion_tags.COMPLETE.name].message = "Games finished successfully."
+statistics[completion_tags.INCOMPLETE.name].base = TEST_COUNT
+statistics[completion_tags.INCOMPLETE.name].message = "Games finished incomplete."
+statistics[completion_tags.INVALID_FLAG.name].base = TEST_COUNT
+statistics[completion_tags.INVALID_FLAG.name].message = "Games finished with false flags."
+statistics[completion_tags.FAILED_BY_GUESSING_BOMB.name].base = TEST_COUNT
+statistics[completion_tags.FAILED_BY_GUESSING_BOMB.name].message = "Games failed eliminating probability. (mine selected)"
+statistics[completion_tags.MID_GAME_STUCK_5050.name].base = TEST_COUNT
+statistics[completion_tags.MID_GAME_STUCK_5050.name].message = "Games stuck on 50/50's but not as a final move"
+statistics[completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050.name].base = TEST_COUNT
+statistics[completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050.name].message = "Games stuck on ONE 50/50 AS a final move"
+statistics[completion_tags.FINAL_STUCK_MULTIPLE_5050.name].base = TEST_COUNT
+statistics[completion_tags.FINAL_STUCK_MULTIPLE_5050.name].message = "Games stuck on MULTIPLE and ONLY 50/50's as a final move"
+statistics[completion_tags.FINAL_STUCK_ONE_5050_AND_PROBABILITY_LESS_THAN_5050.name].base = TEST_COUNT
+statistics[completion_tags.FINAL_STUCK_ONE_5050_AND_PROBABILITY_LESS_THAN_5050.name].message = "Games stuck on ONE 50/50 and other probablities less than 50%% as final"
+statistics[completion_tags.FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050.name].base = TEST_COUNT
+statistics[completion_tags.FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050.name].message = "Games stuck on MULTIPLE 50/50's and other probablities less than 50%% as final"
+statistics[completion_tags.SUCCESSFULLY_ELIMINATED_SOME_PROBABILITY_DURING_GAME.name].base = TEST_COUNT
+statistics[completion_tags.SUCCESSFULLY_ELIMINATED_SOME_PROBABILITY_DURING_GAME.name].message = "Games that successfully eliminated probability during the round (may not have ended up completing, but did eliminate at least one successfully)"
+statistics[completion_tags.SIMULTANEOUS_SOLUTION_CONTRIBUTION.name].base = TEST_COUNT
+statistics[completion_tags.SIMULTANEOUS_SOLUTION_CONTRIBUTION.name].message = "Games where the simultaneous solver was used"
+statistics[completion_tags.SIMULTANEOUS_FAILED_TO_RESOLVE.name].base = TEST_COUNT
+statistics[completion_tags.SIMULTANEOUS_FAILED_TO_RESOLVE.name].message = "Games where the simultaneous solver was used but didnt help"
+
+def verify_board(board, minefield, tags : set[completion_tags]):
   valid = True
-  tags : list[completion_tags] = []
 
   #cjecking all of board is explored
   x_pos = 0
@@ -529,11 +630,11 @@ def verify_board(board, minefield):
       if cell == 'N':
         valid = False
         if completion_tags.INCOMPLETE not in tags:
-          tags.append(completion_tags.INCOMPLETE)
+          tags.add(completion_tags.INCOMPLETE)
       elif (cell == '*') != minefield[x_pos][y_pos]:
         valid = False
         if completion_tags.INVALID_FLAG not in tags:
-          tags.append(completion_tags.INVALID_FLAG)
+          tags.add(completion_tags.INVALID_FLAG)
       y_pos += 1
     y_pos = 0
     x_pos += 1
@@ -549,41 +650,47 @@ def verify_board(board, minefield):
   #       tags.append(completion_tags.INVALID_FLAG)
   
   if valid:
-    tags.append(completion_tags.COMPLETE)
+    tags.add(completion_tags.COMPLETE)
   return valid, tags
 
 
+class frequency_and_tag_wrapper:
+  def __init__(self) -> None:
+    self.frequency = 0
+    self.tag_dict : dict[completion_tags,int] = {}
 
-verif_count = 0
-completion_counts = {
-  "COMPLETE" : 0,
-  "INVALID_FLAG" : 0,
-  "INCOMPLETE" : 0,
-  "COMPLETE_WITH_ZERO_UNDISCOVERED" : 0,
-  "SIMULTANEOUS_SOLVER_CONTRIBUTION" : 0,
-  "SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE" : 0,
-  "STALLED_AT_5050_NOT_END" : 0
-}
+  def increment_frequency(self):
+    self.frequency += 1
+  
+  def add_tags(self, tags : set[completion_tags]):
+    for tag in tags:
+      self.tag_dict.setdefault(tag,0)
+      self.tag_dict[tag] += 1
+  
+  def announce_tags(self):
+    for tag, frequency in self.tag_dict.items():
+      print(f"    {tag.name} occured {frequency} times")
 
+
+solved_cell_complete_delta_frequency : dict[int,frequency_and_tag_wrapper] = {} # delta : (frequency, tag : frequency)
 for index in tqdm(range(TEST_COUNT),desc="games simulated", unit=" games"):
   minefield, start_position_x, start_position_y,mine_positions = generate_minefield(MAP_X, MAP_Y, MINE_COUNT)
-  solved_minefield, is_5050, score_map,dico,sim_sol_contr, not_sim_res,final_probability_by_cell,probability_frequencies = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y)
+  score_map,dico,final_probability_by_cell,probability_frequencies, tags,solved_cell_set = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y,mine_positions)
   
-  valid, tags = verify_board(score_map, minefield)
+  valid, tags = verify_board(score_map, minefield, tags)
   if completion_tags.COMPLETE in tags:
-    completion_counts["COMPLETE"] += 1
-    if len(dico) == 0:
-      completion_counts["COMPLETE_WITH_ZERO_UNDISCOVERED"] += 1
-  if completion_tags.INVALID_FLAG in tags:
-    completion_counts["INVALID_FLAG"] += 1
-  if completion_tags.INCOMPLETE in tags:
-    completion_counts["INCOMPLETE"] += 1
-  if sim_sol_contr:
-    completion_counts["SIMULTANEOUS_SOLVER_CONTRIBUTION"] += 1
-  if not_sim_res:
-    completion_counts["SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE"] += 1
-  if 0.5 in probability_frequencies:
-    completion_counts["STALLED_AT_5050_NOT_END"] += 1
+    key = MAP_X * MAP_Y - len(solved_cell_set)
+    solved_cell_complete_delta_frequency.setdefault(key, frequency_and_tag_wrapper())
+    solved_cell_complete_delta_frequency[key].increment_frequency()
+    solved_cell_complete_delta_frequency[key].add_tags(tags)
+    # if key != 10:
+    #   print(key)
+    #   render_board(score_map, MAP_X, MAP_Y)
+
+
+  for tag in tags:
+    statistics[tag.name].count += 1
+
   
   if SHOW_RESULT_OF_EACH_GAME:
     render_board(score_map,MAP_X,MAP_Y)
@@ -624,11 +731,9 @@ for index in tqdm(range(TEST_COUNT),desc="games simulated", unit=" games"):
     verif_count += 1
 
 print(f'{verif_count}/{TEST_COUNT} valid mine placement')
-print(f"{completion_counts['COMPLETE']}/{TEST_COUNT}, {completion_counts['COMPLETE']/TEST_COUNT*100}% completed successfully")
-print(f"{completion_counts['COMPLETE_WITH_ZERO_UNDISCOVERED']}/{TEST_COUNT}, {completion_counts['COMPLETE_WITH_ZERO_UNDISCOVERED']/completion_counts['COMPLETE']*100}% of complete games completed without undiscovered successfully")
-print(f"{completion_counts['SIMULTANEOUS_SOLVER_CONTRIBUTION']}/{TEST_COUNT}, {completion_counts['SIMULTANEOUS_SOLVER_CONTRIBUTION']/TEST_COUNT*100}% used simultaneous")
+for statistic_name, statistic_object in statistics.items():
+  statistic_object.announce()
 
-print(f"{completion_counts['INCOMPLETE']}/{TEST_COUNT}, {completion_counts['INCOMPLETE']/TEST_COUNT*100}% finished incomplete")
-print(f"{completion_counts['INVALID_FLAG']}/{TEST_COUNT}, {completion_counts['INVALID_FLAG']/TEST_COUNT*100}% finished with invalid flags")
-print(f"{completion_counts['SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE']}/{TEST_COUNT}, {completion_counts['SIMULTANEOUS_SOLVER_FAILED_AT_LEAST_ONCE']/TEST_COUNT*100}% SIMULTANEOUS FAILED")
-print(f"{completion_counts['STALLED_AT_5050_NOT_END']}/{TEST_COUNT}, {completion_counts['STALLED_AT_5050_NOT_END']/TEST_COUNT*100}% STALLED_AT_5050_NOT_END")
+# for delta, frequency in solved_cell_complete_delta_frequency.items():
+#   print(f"solved cell delta of {delta} occured {frequency.frequency} times")
+#   frequency.announce_tags()
