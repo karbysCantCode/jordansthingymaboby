@@ -9,10 +9,6 @@ from sympy import symbols, Symbol, Eq, solve, Add
 from typing import Optional, Union
 from collections import deque
 
-#DEBUGGING
-DEBUGGING = False
-MUTE_INTERMEDIATE_PRINTS = True
-
 #################################################################
 # SETTINGS!!!!!!!!
 #################################################################
@@ -79,10 +75,6 @@ def generate_minefield(map_x, map_y, mine_count):
 
     return minefield_map, start_position_x, start_position_y, mine_positions
 
-import numpy
-import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
-
 def render_board(score_map, map_x, map_y, title="Minesweeper Board Visualization"):
     """
     Render a Minesweeper board from a 2D numpy array (score_map)
@@ -145,22 +137,6 @@ def render_board(score_map, map_x, map_y, title="Minesweeper Board Visualization
     plt.title(title, fontsize=14)
     plt.show()
 
-def delta_text_map(start_x, start_y, map_x,map_y,score_map):
-    for x in range(map_x):
-      row = ''
-      for y in range(map_y):
-        if (x,y) in mine_positions:
-          if score_map[x][y] == "*":
-            row += f"  *"
-          else:
-            row += f"  X"
-        elif (x,y) == (start_position_x, start_position_y):
-          row += f"  !"
-        else:
-          row += f"  {score_map[x][y]}"
-
-      print(row)
-
 
 
 
@@ -200,15 +176,11 @@ class mine_analysis_identity:
 
 
 #solves from 0 spread
-def solve_minefield(minefield_map, map_x, map_y, start_position_x, start_position_y,mine_positions):
+def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : int, start_position_y : int,mine_positions : list[tuple[int, int]]):
   tags : set[completion_tags] = set()
   scored_map = numpy.full((map_x, map_y), 'N', dtype=object)
   already_spread_map = numpy.zeros((map_x, map_y), dtype=int)
-  solved_cell_count = 0
   solved_cell_set : set[tuple[int,int]]= set()
-
-  #will be init with the 0 spread discovered non 0's
-  last_step_solved_map = numpy.zeros((map_x, map_y), dtype=int)
 
   changes_last_step = 1
   zero_spread_last_step_solved_coordinates : list[tuple[int, int]] = []
@@ -307,16 +279,9 @@ def solve_minefield(minefield_map, map_x, map_y, start_position_x, start_positio
 
     while changes_last_step > 0:
       changes_last_step = 0
-      last_square_unchanged = True
 
       for coordinate_tuple in discovered_incomplete_coordinates.copy():
-        #debug
         x,y = coordinate_tuple[0],coordinate_tuple[1]
-        if not last_square_unchanged and DEBUGGING:
-          delta_text_map(start_position_x,start_position_y,map_x,map_y,scored_map)
-          print()
-          render_board(scored_map,MAP_X,MAP_Y)
-        last_square_unchanged = True
         current_score = get_mines_around(x, y)
         blanks_around, blanks_coordinate_list = get_empty_cells_around(x, y)
         flags_around = get_flags_around(x, y)
@@ -326,15 +291,11 @@ def solve_minefield(minefield_map, map_x, map_y, start_position_x, start_positio
           changes_last_step += 1
           discovered_incomplete_coordinates.remove(coordinate_tuple)
           solved_cell_set.add(coordinate_tuple)
-          #debug
-          last_square_unchanged = False
           continue
         
         #if there are only the number of blanks around or
         #if there are only the number of flag + blanks
         if current_score - flags_around == blanks_around:
-          if not MUTE_INTERMEDIATE_PRINTS:
-            print(f'{x},{y}, C={current_score}, F={flags_around}, B={blanks_around}')
           for x,y in blanks_coordinate_list:
             #flag blanks
             scored_map[x][y] = '*'
@@ -342,8 +303,6 @@ def solve_minefield(minefield_map, map_x, map_y, start_position_x, start_positio
           changes_last_step += 1
           discovered_incomplete_coordinates.remove(coordinate_tuple)
           solved_cell_set.add(coordinate_tuple)
-          #debug
-          last_square_unchanged = False
           continue
         
         if flags_around == current_score and blanks_around > 0:
@@ -360,10 +319,8 @@ def solve_minefield(minefield_map, map_x, map_y, start_position_x, start_positio
           changes_last_step += 1
           discovered_incomplete_coordinates.remove(coordinate_tuple)
           solved_cell_set.add(coordinate_tuple)
-
-          #debug
-          last_square_unchanged = False
           continue
+
   def simultaneous_solver():
     identity_list : list[mine_analysis_identity] = []
     blanks_to_analyse : set[tuple[int,int]] = set()
@@ -412,22 +369,6 @@ def solve_minefield(minefield_map, map_x, map_y, start_position_x, start_positio
       
     return len(deduced)>0, deduced
     
-
-
-    
-
-      
-
-    
-
-
-
-    
-
-
-
-    
-
   def cell_probability_analysis():
     probability_frequencies : dict[float, int] = {}
 
@@ -453,10 +394,6 @@ def solve_minefield(minefield_map, map_x, map_y, start_position_x, start_positio
     
     return final_probability_by_cell, probability_frequencies
 
-
-
-
-  
   final_probability_by_cell : dict[tuple[int,int], float] = {}
   probability_frequencies : dict[float, int] = {}
 
@@ -541,9 +478,6 @@ def solve_minefield(minefield_map, map_x, map_y, start_position_x, start_positio
           #if deduced == None: # type: ignore
 
           for coordinate, is_mine in deduced.items(): # type: ignore
-            if DEBUGGING:
-              print(f'{type(coordinate)}, {coordinate}, :: {type(is_mine)}, {is_mine}')
-            #discovered_incomplete_coordinates.remove(coordinate)
             if is_mine:
               scored_map[coordinate[0]][coordinate[1]] = '*'
             else:
@@ -589,7 +523,6 @@ class statistic:
   def announce(self):
     print(f"{self.count}/{self.base} : {self.count/self.base*100}% {self.message}")
 
-verif_count = 0
 statistics : dict[str, statistic] = {}
 for tag in completion_tags:
   statistics[tag.name] = statistic(0,0,'')
@@ -639,16 +572,6 @@ def verify_board(board, minefield, tags : set[completion_tags]):
     y_pos = 0
     x_pos += 1
 
-        
-
-
-  #checking invalid flags
-  # for mine_coordinate in minefield:
-  #   if not board[mine_coordinate[0]][mine_coordinate[1]] == '*':
-  #     valid = False
-  #     if completion_tags.INVALID_FLAG not in tags:
-  #       tags.append(completion_tags.INVALID_FLAG)
-  
   if valid:
     tags.add(completion_tags.COMPLETE)
   return valid, tags
@@ -672,68 +595,183 @@ class frequency_and_tag_wrapper:
       print(f"    {tag.name} occured {frequency} times")
 
 
-solved_cell_complete_delta_frequency : dict[int,frequency_and_tag_wrapper] = {} # delta : (frequency, tag : frequency)
-for index in tqdm(range(TEST_COUNT),desc="games simulated", unit=" games"):
-  minefield, start_position_x, start_position_y,mine_positions = generate_minefield(MAP_X, MAP_Y, MINE_COUNT)
-  score_map,dico,final_probability_by_cell,probability_frequencies, tags,solved_cell_set = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y,mine_positions)
-  
-  valid, tags = verify_board(score_map, minefield, tags)
-  if completion_tags.COMPLETE in tags:
-    key = MAP_X * MAP_Y - len(solved_cell_set)
-    solved_cell_complete_delta_frequency.setdefault(key, frequency_and_tag_wrapper())
-    solved_cell_complete_delta_frequency[key].increment_frequency()
-    solved_cell_complete_delta_frequency[key].add_tags(tags)
-    # if key != 10:
-    #   print(key)
-    #   render_board(score_map, MAP_X, MAP_Y)
+def example_usage():
+  verif_count = 0
+  solved_cell_complete_delta_frequency : dict[int,frequency_and_tag_wrapper] = {} # delta : (frequency, tag : frequency)
+  for index in tqdm(range(TEST_COUNT),desc="games simulated", unit=" games"):
+    minefield, start_position_x, start_position_y,mine_positions = generate_minefield(MAP_X, MAP_Y, MINE_COUNT)
+    score_map,dico,final_probability_by_cell,probability_frequencies, tags,solved_cell_set = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y,mine_positions)
+    
+    valid, tags = verify_board(score_map, minefield, tags)
+    if completion_tags.COMPLETE in tags:
+      key = MAP_X * MAP_Y - len(solved_cell_set)
+      solved_cell_complete_delta_frequency.setdefault(key, frequency_and_tag_wrapper())
+      solved_cell_complete_delta_frequency[key].increment_frequency()
+      solved_cell_complete_delta_frequency[key].add_tags(tags)
 
 
-  for tag in tags:
-    statistics[tag.name].count += 1
+    for tag in tags:
+      statistics[tag.name].count += 1
 
-  
-  if SHOW_RESULT_OF_EACH_GAME:
-    render_board(score_map,MAP_X,MAP_Y)
+    
+    if SHOW_RESULT_OF_EACH_GAME:
+      render_board(score_map,MAP_X,MAP_Y)
+          
+      
 
-  if not MUTE_INTERMEDIATE_PRINTS:
-    # Print grid nicely
+    mc = 0
     for row in minefield:
-      print('  '.join(str(cell) for cell in row))
-    print()
-    for row in score_map:
-      print('  '.join(str(cell) for cell in row))
-    print()
-    for x in range(MAP_X):
-      row = ''
-      for y in range(MAP_Y):
-        if (x,y) in mine_positions:
-          if score_map[x][y] == "*" and minefield[x][y] == 1:
-            row += f"  *"
-          else:
-            row += f"  X"
-        elif (x,y) == (start_position_x, start_position_y):
-          row += f"  !"
-        else:
-          row += f"  {score_map[x][y]}"
+      for cell in row:
+        mc += cell
 
-      print(row)
-        
-     
+    if mc == MINE_COUNT:
+      verif_count += 1
 
-  mc = 0
-  for row in minefield:
-    for cell in row:
-      mc += cell
-  if not MUTE_INTERMEDIATE_PRINTS:
-    print(f'{mc} mines')
+  print(f'{verif_count}/{TEST_COUNT} valid mine placement')
+  for statistic_name, statistic_object in statistics.items():
+    statistic_object.announce()
 
-  if mc == MINE_COUNT:
-    verif_count += 1
+#example_usage()
 
-print(f'{verif_count}/{TEST_COUNT} valid mine placement')
-for statistic_name, statistic_object in statistics.items():
-  statistic_object.announce()
+class minesweeper_simulation:
+  def __init__(self, 
+               rounds : int, 
+               width : int, 
+               height : int,
+               mine_density : float
+               ) -> None:
+    self.rounds = rounds
+    self.width = width
+    self.height = height
+    self.mine_density = mine_density
+    self.mine_count = -1
+  
+  def solve_and_validate_mine_count(self):
+    mc = int(self.width*self.height*self.mine_density/100)
+    if mc >= self.height*self.width-9:
+      return False
+    self.mine_count = mc
+    return True
 
-# for delta, frequency in solved_cell_complete_delta_frequency.items():
-#   print(f"solved cell delta of {delta} occured {frequency.frequency} times")
-#   frequency.announce_tags()
+import tkinter as tk
+
+create_window = None
+create_warning_window = None
+
+root = tk.Tk()
+root.title("Minesweeper Simulator")
+root.geometry("600x400")
+
+def warn_create(warnings :list[str]):
+  global create_warning_window
+  if create_warning_window and create_warning_window.winfo_exists():
+    create_warning_window.lift()
+  else:
+    create_warning_window = tk.Toplevel(root)
+    create_warning_window.title("Create Simulation Warnings")
+    create_warning_window.geometry(f"400x{len(warnings)*30}")
+
+  create_warning_window.grid_columnconfigure(0,weight=1)
+  index = 0
+  for warning in warnings:
+    tk.Label(create_warning_window,text=warning).grid(row=index,column=0)
+    create_warning_window.grid_rowconfigure(index,weight=1)
+
+    index += 1
+
+def create_simulation_window():
+  global create_window
+  if create_window and create_window.winfo_exists():
+    create_window.lift()
+    return
+  
+  create_window = tk.Toplevel(root)
+  create_window.title("Create simulation")
+  create_window.geometry("350x250")
+
+  create_window.grid_columnconfigure(0,weight=1)
+  create_window.grid_columnconfigure(1,weight=1)
+  create_window.grid_rowconfigure(0,weight=1)
+  create_window.grid_rowconfigure(1,weight=1)
+  create_window.grid_rowconfigure(2,weight=1)
+  create_window.grid_rowconfigure(3,weight=1)
+  create_window.grid_rowconfigure(4,weight=2)
+
+
+  simulation = minesweeper_simulation(0, 0, 0, 0)
+  # ----- Row 0 -----
+  tk.Label(create_window, text="Number of games to simulate:").grid(row=0, column=0,sticky="e")
+  entry_rounds = tk.Entry(create_window)
+  entry_rounds.grid(row=0, column=1)
+
+  # ----- Row 1 -----
+  tk.Label(create_window, text="Board width:").grid(row=1, column=0,sticky="e")
+  entry_width = tk.Entry(create_window)
+  entry_width.grid(row=1, column=1)
+
+  # ----- Row 2 -----
+  tk.Label(create_window, text="Board height:").grid(row=2, column=0,sticky="e")
+  entry_height = tk.Entry(create_window)
+  entry_height.grid(row=2, column=1)
+
+  # ----- Row 3 -----
+  tk.Label(create_window, text="Mine density (%):").grid(row=3, column=0,sticky="e")
+  entry_density = tk.Entry(create_window)
+  entry_density.grid(row=3, column=1)
+
+  def verify():
+    nonlocal entry_density
+    nonlocal entry_height
+    nonlocal entry_width
+    nonlocal entry_rounds
+    nonlocal simulation
+  
+    warnings = []
+    try:
+      simulation.height = int(entry_height.get())
+    except:
+      warnings.append("Simulation height not an integer")
+
+    try:
+      simulation.width = int(entry_width.get())
+    except:
+      warnings.append("Simulation width not an integer")
+
+    try:
+      simulation.rounds = int(entry_rounds.get())
+    except:
+      warnings.append("Simulation rounds not an integer")
+
+    try:
+      simulation.mine_density = int(entry_density.get())
+    except:
+      warnings.append("Simulation density not a number")
+
+    if len(warnings) == 0:
+      if simulation.height < 1:
+        warnings.append("Simulation height less than 1")
+      if simulation.width < 1:
+        warnings.append("Simulation width less than 1")
+      if simulation.rounds < 1:
+        warnings.append("Simulation height less than 1")
+      if simulation.mine_density < 1 or simulation.mine_density > 100:
+        warnings.append("Simulation mine density out of bounds (1 to 100)")
+
+      if not simulation.solve_and_validate_mine_count():
+        warnings.append("Simulation mine density too high for a starting location")
+    if len(warnings) != 0:
+      warn_create(warnings)
+    else:
+      
+    
+
+
+  # ----- Button -----
+  bt = tk.Button(create_window, text="Start Simulation", command=verify)\
+      .grid(row=4, column=0, columnspan=2, pady=10)
+
+create_simulation = tk.Button(root, text="Create simulation", command=create_simulation_window)
+create_simulation.grid(row=0,column=0)
+
+
+root.mainloop()
