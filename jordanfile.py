@@ -20,6 +20,11 @@ from tkinter import filedialog
 #################################################################
 # SETTINGS!!!!!!!!
 #################################################################
+
+
+#HIGHKEY THESE DONT DO ANYTHING ANYMORE BC OF THE UI
+
+
 MINE_DENSITY = 0.1                           #percentage as decimal, ie 10% = 0.1
 MAP_X = 100                                   #the game width in cells
 MAP_Y = 100                                   #the game height in cells
@@ -642,6 +647,11 @@ def example_usage():
 #example_usage()
 
 
+#UI CODE BELOW HERE
+#################################################################
+##################################################################
+#################################################################
+##UI CODE BELOW HERE
 
 create_window = None
 create_warning_window = None
@@ -708,9 +718,9 @@ class ProgressList(tk.Frame):
             self.rows[row_id]["frame"].destroy()
             del self.rows[row_id]
 
-tk.Label(root, text="Simulations In Progress:").grid(row=7, column=0, columnspan=2, padx=10, pady=(10,0))
+tk.Label(root, text="Simulations In Progress:").grid(row=8, column=0, columnspan=2, padx=10, pady=(10,0))
 progress_list = ProgressList(root)
-progress_list.grid(row=8, column=0, columnspan=2, sticky="nsew", padx=10, pady=10)
+progress_list.grid(row=9, column=0, columnspan=2, sticky="nsew", padx=10, pady=10)
 
 
 class minesweeper_simulation:
@@ -911,7 +921,7 @@ tree.grid(row=2,column=0, columnspan=2)
 
 tree_table = {}
 
-tk.Label(root, text="Processed simulations:").grid(row=4,column=0, columnspan=2)
+tk.Label(root, text="Processed simulations:").grid(row=5,column=0, columnspan=2)
 processed_simulations_tree = ttk.Treeview(root, columns=("rounds", "width", "height", "density", "mines"), show="headings")
 processed_simulations_tree.column("rounds", width=100)
 processed_simulations_tree.column("width", width=100)
@@ -924,7 +934,7 @@ processed_simulations_tree.heading("width", text="Width")
 processed_simulations_tree.heading("height", text="Height")
 processed_simulations_tree.heading("density", text="Density")
 processed_simulations_tree.heading("mines", text="Mines")
-processed_simulations_tree.grid(row=5,column=0, columnspan=2)
+processed_simulations_tree.grid(row=7,column=0, columnspan=2)
 
 processed_simulations_tree_table = {}
 
@@ -957,6 +967,20 @@ def start_selected_simulation():
     messagebox.showerror("Error", "Selected simulation not found or is already running.")
 start_simulation_button = tk.Button(root, text="Start Selected Simulation", command=start_selected_simulation)
 start_simulation_button.grid(row=3,column=0, sticky="e")
+delete_selected_simulation_button = tk.Button(root, text="Delete Selected Simulation", command=lambda: delete_selected_simulation(tree.selection()))
+delete_selected_simulation_button.grid(row=4,column=0, columnspan=2)
+
+def delete_selected_simulation(selected_item):
+  if not selected_item:
+    messagebox.showwarning("No Selection", "Please select a simulation to delete.")
+    return
+
+  for item in selected_item:
+    simulation = tree_table.get(item)
+    if simulation:
+      simulation_backlog.remove(simulation)
+  
+  populate_treeview()
 
 def move_simulation_to_processed(simulation: minesweeper_simulation):
   if simulation in simulation_backlog:
@@ -1027,10 +1051,10 @@ def export_statistics(selected_item, is_all : bool = False):
 
 
 export_statistics_button = tk.Button(root, text="Export Selected Simulation Statistics", command=lambda: export_statistics(processed_simulations_tree.selection()))
-export_statistics_button.grid(row=9,column=0, sticky="e")
+export_statistics_button.grid(row=10,column=0, sticky="e")
 
 export_all_statistics_button = tk.Button(root, text="Export All Simulation Statistics", command=lambda: export_statistics(None, True))
-export_all_statistics_button.grid(row=9,column=1, sticky="w")
+export_all_statistics_button.grid(row=10,column=1, sticky="w")
 
 
 def populate_processed_treeview():
