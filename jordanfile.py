@@ -1,5 +1,6 @@
 import random
 import threading
+import time
 from tkinter import messagebox
 import numpy
 from math import prod
@@ -10,6 +11,11 @@ from tqdm import tqdm
 from sympy import symbols, Symbol, Eq, solve, Add
 from typing import Optional, Union
 from collections import deque
+import csv
+import tkinter as tk
+from tkinter import ttk
+from tkinter import filedialog
+
 
 #################################################################
 # SETTINGS!!!!!!!!
@@ -637,9 +643,6 @@ def example_usage():
 
 
 
-import tkinter as tk
-from tkinter import ttk
-
 create_window = None
 create_warning_window = None
 simulation_result_window = None
@@ -658,7 +661,7 @@ class ProgressList(tk.Frame):
 
         self.rows = {}      # internal storage: id → widgets
         self._counter = 0   # auto-increment row ID
-        self.config(bg="gray90", height=200, width=400)
+        self.config(bg="white", height=200, width=400)
         self.columnconfigure(1, weight=1)
 
     def add(self, text):
@@ -671,7 +674,7 @@ class ProgressList(tk.Frame):
         row_frame.pack(fill="x", pady=2)
 
         # Label
-        label = tk.Label(row_frame, text=text, width=20, anchor="w")
+        label = tk.Label(row_frame, text=text, anchor="w")
         label.pack(side="left")
 
         # Progress bar
@@ -679,7 +682,7 @@ class ProgressList(tk.Frame):
         bar.pack(side="left", fill="x", expand=True, padx=5)
 
         # Remove button
-        remove_btn = tk.Button(row_frame, text="X", command=lambda: self.remove(row_id))
+        remove_btn = tk.Button(row_frame, text="X", command=lambda: self.clean_remove(row_id))
         remove_btn.pack(side="right")
 
         # Store widget references
@@ -690,8 +693,11 @@ class ProgressList(tk.Frame):
         }
 
         return row_id  # <-- return ID to caller
-
-    def update(self, row_id, value):
+    def clean_remove(self, row_id):
+      self.remove(row_id)
+      simulations_by_row_id[row_id].running = False
+      populate_treeview()
+    def update_list(self, row_id, value):
         """Update the progress bar."""
         if row_id in self.rows:
             self.rows[row_id]["bar"]["value"] = value
@@ -702,8 +708,10 @@ class ProgressList(tk.Frame):
             self.rows[row_id]["frame"].destroy()
             del self.rows[row_id]
 
+tk.Label(root, text="Simulations In Progress:").grid(row=7, column=0, columnspan=2, padx=10, pady=(10,0))
 progress_list = ProgressList(root)
-progress_list.grid(row=6, column=0, columnspan=2, sticky="nsew", padx=10, pady=10)
+progress_list.grid(row=8, column=0, columnspan=2, sticky="nsew", padx=10, pady=10)
+
 
 class minesweeper_simulation:
   def __init__(self, 
@@ -719,6 +727,9 @@ class minesweeper_simulation:
     self.mine_count = -1
     self.statistics = statistics.copy()
     self.treeview_item_id : Optional[str] = None
+    self.running = False
+
+    self.UPDATE_DB = 0.5
   
   def solve_and_validate_mine_count(self):
     mc = int(self.width*self.height*self.mine_density/100)
@@ -729,7 +740,12 @@ class minesweeper_simulation:
   
   def run(self):
     if self.solve_and_validate_mine_count():
+      last_update_time = 0
+      self.running = True
+
       for i in range(self.rounds):
+        if not self.running:
+          return
         minefield, start_position_x, start_position_y,mine_positions = generate_minefield(self.width, self.height, self.mine_count)
         score_map,dico,final_probability_by_cell,probability_frequencies, tags,solved_cell_set = solve_minefield(minefield, self.width, self.height, start_position_x, start_position_y,mine_positions)
         valid, tags = verify_board(score_map, minefield, tags)
@@ -738,11 +754,14 @@ class minesweeper_simulation:
         for tag in tags:
           self.statistics[tag.name].count += 1
       
-        if self.treeview_item_id is not None:
+        if self.treeview_item_id is not None and (time.time() - last_update_time) > self.UPDATE_DB:
           progress = int((i+1)/self.rounds*100)
-          progress_list.update(self.treeview_item_id, progress)
+          root.after(0, progress_list.update_list, self.treeview_item_id, progress)
+          last_update_time = time.time()
 
-      progress_list.remove(self.treeview_item_id)
+      if self.treeview_item_id is not None:
+        root.after(0, progress_list.update_list, self.treeview_item_id, 100)
+        root.after(0, progress_list.remove, self.treeview_item_id)
       move_simulation_to_processed(self)
       
 
@@ -754,13 +773,12 @@ class minesweeper_simulation:
     self.treeview_item_id = treeview_item_id
 
 
-        
+simulations_by_row_id : dict[str, minesweeper_simulation] = {}
 
 
 
 simulation_backlog : list[minesweeper_simulation] = []
 processed_simulation_backlog : list[minesweeper_simulation] = []
-current_simulation : Optional[minesweeper_simulation] = None
 
 def warn_create(warnings :list[str]):
   global create_warning_window
@@ -866,7 +884,7 @@ def create_simulation_window():
       populate_treeview()
       #show success before closing
       messagebox.showinfo("Success", "Simulation created successfully.")
-      create_window.destroy()
+      create_window.destroy() # type: ignore
     
 
 
@@ -908,9 +926,13 @@ processed_simulations_tree.heading("density", text="Density")
 processed_simulations_tree.heading("mines", text="Mines")
 processed_simulations_tree.grid(row=5,column=0, columnspan=2)
 
+processed_simulations_tree_table = {}
+
 def populate_treeview():
   tree.delete(*tree.get_children())
   for simulation in simulation_backlog:
+    if simulation.running:
+      continue
     tree_object = tree.insert("", "end", values=(f"{simulation.rounds}", f"{simulation.width}", f"{simulation.height}", f"{simulation.mine_density}%", f"{simulation.mine_count}"))
     tree_table[tree_object] = simulation
 
@@ -922,17 +944,17 @@ def start_selected_simulation():
 
   selected_item = selected_items[0]
   simulation = tree_table.get(selected_item)
-  if simulation:
-    global current_simulation
-    current_simulation = simulation
+  if simulation and not simulation.running:
     messagebox.showinfo("Simulation Started", f"Started simulation with {simulation.rounds} rounds.")
     #run the simulation on another thread
-    sim_id = progress_list.add(f"Sim: {simulation.rounds} rounds, {simulation.width}x{simulation.height}, {simulation.mine_density}% mines")
+    sim_id = progress_list.add(f"Sim: {simulation.rounds} rounds, {simulation.width}x{simulation.height}, {simulation.mine_density}% mine density")
     simulation.register_updater(sim_id)
-    threading.Thread(target=simulation.run).start()
+    simulations_by_row_id[sim_id] = simulation
+    threading.Thread(target=simulation.run, daemon=True).start()
 
+    populate_treeview()
   else:
-    messagebox.showerror("Error", "Selected simulation not found.")
+    messagebox.showerror("Error", "Selected simulation not found or is already running.")
 start_simulation_button = tk.Button(root, text="Start Selected Simulation", command=start_selected_simulation)
 start_simulation_button.grid(row=3,column=0, sticky="e")
 
@@ -949,25 +971,73 @@ def run_all_simulations():
     return
   
   for simulation in simulation_backlog:
-    global current_simulation
-    current_simulation = simulation
+    if simulation.running:
+      messagebox.showinfo("Simulation Skipped", f"Skipped simulation with {simulation.rounds} rounds as it is already running.")
+      continue
     messagebox.showinfo("Simulation Started", f"Started simulation with {simulation.rounds} rounds.")
     #run the simulation on another thread
     sim_id = progress_list.add(f"Sim: {simulation.rounds} rounds, {simulation.width}x{simulation.height}, {simulation.mine_density}% mines")
     simulation.register_updater(sim_id)
-    threading.Thread(target=simulation.run).start()
+    simulations_by_row_id[sim_id] = simulation
+    threading.Thread(target=simulation.run, daemon=True).start()
+
+  populate_treeview()
+
+  
 
 
 run_all_simulations_button = tk.Button(root, text="Run All Simulations", command=run_all_simulations)
 run_all_simulations_button.grid(row=3,column=1, sticky="w")
 
+def export_statistics(selected_item, is_all : bool = False):
+  if is_all:
+    simulations_to_export = processed_simulation_backlog
+  else:
+    simulations_to_export = []
+    for item in selected_item:
+      simulation = processed_simulations_tree_table.get(item)
+      if simulation:
+        simulations_to_export.append(simulation)
+
+  if len(simulations_to_export) == 0:
+    messagebox.showwarning("No Simulations Selected", "No processed simulations were selected for export.")
+    return
+  #export to csv
+  #open a file dialog to select save location
+  file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+  if not file_path:
+    messagebox.showwarning("No File Selected", "No file was selected for saving.")
+    return
+  
+  with open(file_path, mode='w', newline='') as file:
+    writer = csv.writer(file)
+    #write header
+    header = ["Rounds", "Width", "Height", "Mine Density", "Mine Count"]
+    for tag_name in statistics.keys():
+      header.append(tag_name)
+    writer.writerow(header)
+
+    for simulation in simulations_to_export:
+      row = [simulation.rounds, simulation.width, simulation.height, simulation.mine_density, simulation.mine_count]
+      for tag_name, statistic in simulation.statistics.items():
+        row.append(statistic.count)
+      writer.writerow(row)
+
+    messagebox.showinfo("Export Successful", f"Simulation statistics exported successfully to {file_path}.")
+
+
+export_statistics_button = tk.Button(root, text="Export Selected Simulation Statistics", command=lambda: export_statistics(processed_simulations_tree.selection()))
+export_statistics_button.grid(row=9,column=0, sticky="e")
+
+export_all_statistics_button = tk.Button(root, text="Export All Simulation Statistics", command=lambda: export_statistics(None, True))
+export_all_statistics_button.grid(row=9,column=1, sticky="w")
+
 
 def populate_processed_treeview():
   processed_simulations_tree.delete(*processed_simulations_tree.get_children())
-  processed_simulations_tree.clear()
   for simulation in processed_simulation_backlog:
-    processed_simulations_tree.insert("", "end", values=(f"{simulation.rounds}", f"{simulation.width}", f"{simulation.height}", f"{simulation.mine_density}%", f"{simulation.mine_count}"))
-
+    pst = processed_simulations_tree.insert("", "end", values=(f"{simulation.rounds}", f"{simulation.width}", f"{simulation.height}", f"{simulation.mine_density}%", f"{simulation.mine_count}"))
+    processed_simulations_tree_table[pst] = simulation
 
 
 
