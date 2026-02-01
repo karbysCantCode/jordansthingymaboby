@@ -1,3 +1,4 @@
+from __future__ import annotations
 import random
 import threading
 import time
@@ -9,18 +10,25 @@ from matplotlib.colors import ListedColormap
 from enum import Enum
 from tqdm import tqdm
 from sympy import symbols, Symbol, Eq, solve, Add
-from typing import Optional, Union
+from typing import Optional, Union, Tuple, List, Callable
 from collections import deque
 import csv
 import tkinter as tk
+import pygame
 from tkinter import ttk
 from tkinter import filedialog
+from dataclasses import dataclass
+from copy import deepcopy
+import math
+import struct
+import zlib
+import os
 
 
 #################################################################
 # SETTINGS!!!!!!!!
 #################################################################
-
+SAVEFILEMAGIC = b"MSWPSSF"
 
 #HIGHKEY THESE DONT DO ANYTHING ANYMORE BC OF THE UI
 
@@ -41,9 +49,38 @@ MINE_COUNT = int(MAP_X*MAP_Y*MINE_DENSITY)
 #################################################################
 
 #i'll make UI for this eventually :sob:
+assert(False)
+#IMPLEMENT the probability analysis when NO DICO and unsolved cells, just by collated probablility or somethingg
 
+MAPCOLORS = [
+    (0xe8, 0xf1, 0xfa),      # 0
+    (0xd3, 0xe4, 0xf3),      # 1
+    (0xbc, 0xd6, 0xed),      # 2
+    (0x9e, 0xc3, 0xe2),      # 3
+    (0x7f, 0xae, 0xd8),      # 4
+    (0x60, 0x98, 0xcd),      # 5
+    (0x3a, 0x7f, 0xc0),      # 6
+    (0x1f, 0x68, 0xb3),      # 7
+    (0x00, 0x48, 0x9e),      # 8
+    (0x5a, 0x00, 0x00),      # -2 = mine
+    (0xb0, 0xb0, 0xb0),      # -1 = unrevealed
+    (0xff, 0xff, 0x00)
+]
 
-
+REVERSEMAPCOLORS = {
+  (0xe8, 0xf1, 0xfa) : 0,
+  (0xd3, 0xe4, 0xf3) : 1,
+  (0xbc, 0xd6, 0xed) : 2,
+  (0x9e, 0xc3, 0xe2) : 3,
+  (0x7f, 0xae, 0xd8) : 4,
+  (0x60, 0x98, 0xcd) : 5,
+  (0x3a, 0x7f, 0xc0) : 6,
+  (0x1f, 0x68, 0xb3) : 7,
+  (0x00, 0x48, 0x9e) : 8,
+  (0x5a, 0x00, 0x00) : 9,
+  (0xb0, 0xb0, 0xb0) : 10,
+  (0xff, 0xff, 0x00) : 11
+}
 
 
 
@@ -182,6 +219,157 @@ class mine_analysis_identity:
 
 
 
+Color = Tuple[int, int, int]
+
+# @dataclass
+# class Cell:
+#   color: Color
+#   text: Optional[str] = None
+
+#   def copy(self):
+#         return Cell(self.color, self.text)
+
+# @dataclass
+# class BoardState:
+#     cells: List[List[Cell]]  # cells[y][x]
+#     label: str
+
+#     def copy(self):
+#         return BoardState(
+#             cells=[[cell.copy() for cell in row] for row in self.cells],
+#             label=self.label
+#         )
+    
+@dataclass
+class BoardChange:
+  coordinate: Tuple[int,int]
+  color: Color
+  cell_text: str
+  change_text: str
+
+@dataclass
+class RenderCell:
+    color: Color
+    text: str
+
+
+class MinesweeperRenderer:
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        cell_size: int = 32,
+        header_height: int = 40,
+        font_size: int = 10
+    ):
+        pygame.init()
+
+        self.width = width
+        self.height = height
+        self.cell_size = cell_size
+        self.header_height = header_height
+
+        self.screen = pygame.display.set_mode((
+            width * cell_size,
+            height * cell_size + header_height
+        ))
+
+        pygame.display.set_caption("Minesweeper Solver Viewer")
+
+        self.font = pygame.font.SysFont("consolas", font_size)
+        self.header_font = pygame.font.SysFont("consolas", font_size + 2, bold=True)
+        self.clock = pygame.time.Clock()
+
+        self.board: list[list[RenderCell]] = []
+        self.header_text: str = ""
+
+        self.last_change: Optional[BoardChange] = None
+
+    def reset_board(self, round:round):
+        self.board = [
+            [
+                RenderCell(MAPCOLORS[10], "")
+                for cell in range(round.simulation.height)
+            ]
+            for column in range(round.simulation.width)
+        ]
+        self.header_text = "Starting position"
+        self.last_change = None
+        self.board[round.start_position[0]][round.start_position[1]] = RenderCell(MAPCOLORS[0], "0")
+
+    def change(self, change: BoardChange, is_special = False):
+      x, y = change.coordinate
+      if not is_special:
+        self.board[x][y].color = change.color
+      else:
+        self.board[x][y].color = (255,255,0)
+      self.board[x][y].text = change.cell_text
+      self.header_text = change.change_text
+
+    def apply_changes(self, changes: List[BoardChange]):
+      if self.last_change:
+        self.change(self.last_change)
+      change_c = 0
+      while change_c < len(changes) - 1:
+        self.change(changes[change_c])
+        change_c += 1
+      self.last_change = changes[-1]
+      self.change(self.last_change, True)
+    
+    def draw(self):
+      self.screen.fill((30, 30, 30))
+
+      header_surf = self.header_font.render(
+        self.header_text, True, (220, 220, 220)
+      )
+      self.screen.blit(header_surf, (8, 8))
+
+      for x in range(self.width):
+        for y in range(self.height):
+          cell = self.board[x][y]
+          px = x * self.cell_size
+          py = y * self.cell_size + self.header_height
+
+          rect = pygame.Rect(px, py, self.cell_size, self.cell_size)
+          pygame.draw.rect(self.screen, cell.color, rect)
+          pygame.draw.rect(self.screen, (60, 60, 60), rect, 1)
+
+          if cell.text:
+            text_surf = self.font.render(cell.text, True, (0, 0, 0))
+            self.screen.blit(text_surf, text_surf.get_rect(center=rect.center))
+
+        pygame.display.flip()
+
+    def run_round(self, rnd:round):
+      index = 0
+      self.reset_board(rnd)
+
+      self.draw()
+
+      running = True
+      while running:
+        self.clock.tick(60)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+              running = False
+
+            elif event.type == pygame.KEYDOWN:
+              if event.key == pygame.K_ESCAPE:
+                running = False
+
+              elif event.key == pygame.K_SPACE:
+                index = min(index + 1, len(rnd.changes) - 1)
+                self.apply_changes([rnd.changes[index]])
+                self.draw()
+
+              elif event.key == pygame.K_BACKSPACE:
+                index = max(index - 1, 0)
+                self.reset_board(rnd)
+                self.apply_changes(rnd.changes[0:index+1])
+                self.draw()
+
+      pygame.quit()
 
 
 
@@ -190,6 +378,8 @@ class mine_analysis_identity:
 
 #solves from 0 spread
 def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : int, start_position_y : int,mine_positions : list[tuple[int, int]]):
+  changes: List[BoardChange] = []
+  
   tags : set[completion_tags] = set()
   scored_map = numpy.full((map_x, map_y), 'N', dtype=object)
   already_spread_map = numpy.zeros((map_x, map_y), dtype=int)
@@ -252,8 +442,6 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
 
         if (x, y) in already_spread_set:
             continue
-        already_spread_set.add((x, y))
-
         current_location_mine_score = 0
 
         for dx, dy in DIRECTIONS:
@@ -268,10 +456,23 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
                     else:
                         scored_map[nx][ny] = mine_count
                         discovered_incomplete_coordinates.add((nx, ny))  # use set for speed
+                        change = BoardChange((nx,ny),
+                                             MAPCOLORS[mine_count],
+                                             str(mine_count),
+                                             "Uncovered by zero spreading")
+                        changes.append(change)
+                        already_spread_set.add((x, y))
+
 
         # Mark current cell as spread
         already_spread_map[x][y] = 1
+        already_spread_set.add((x, y))
         scored_map[x][y] = current_location_mine_score
+        change = BoardChange((x,y),
+              MAPCOLORS[current_location_mine_score],
+              str(current_location_mine_score),
+              "Uncovered by zero spreading")
+        changes.append(change)
   
 
   # 0 spread from init guess
@@ -302,6 +503,11 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
         #solved all around by nearby's
         if blanks_around == 0:
           changes_last_step += 1
+          change = BoardChange(coordinate_tuple,
+              MAPCOLORS[flags_around],
+              str(flags_around),
+              "Solved All Around (debug: 1)")
+          changes.append(change)
           discovered_incomplete_coordinates.remove(coordinate_tuple)
           solved_cell_set.add(coordinate_tuple)
           continue
@@ -309,26 +515,48 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
         #if there are only the number of blanks around or
         #if there are only the number of flag + blanks
         if current_score - flags_around == blanks_around:
-          for x,y in blanks_coordinate_list:
+          for x2,y2 in blanks_coordinate_list:
             #flag blanks
-            scored_map[x][y] = '*'
+            change = BoardChange((x2,y2),
+              MAPCOLORS[9],
+              "*",
+              "Solved By Neighboring Flag Count")
+            changes.append(change)
+            scored_map[x2][y2] = '*'
+            solved_cell_set.add((x2,y2))
 
+          m_around = get_mines_around(x,y)
+          change = BoardChange(coordinate_tuple,
+              MAPCOLORS[m_around],
+              str(m_around),
+              "Solved All Around 2")
+          changes.append(change)
           changes_last_step += 1
           discovered_incomplete_coordinates.remove(coordinate_tuple)
           solved_cell_set.add(coordinate_tuple)
           continue
         
         if flags_around == current_score and blanks_around > 0:
-          for x,y in blanks_coordinate_list:
-            mines_around_local = get_mines_around(x,y)
-            scored_map[x][y] = mines_around_local
-            if (x,y) not in discovered_incomplete_coordinates:
+          for x2,y2 in blanks_coordinate_list:
+            mines_around_local = get_mines_around(x2,y2)
+            scored_map[x2][y2] = mines_around_local
+            change = BoardChange((x2,y2),
+                MAPCOLORS[mines_around_local],
+                str(mines_around_local),
+                "Sufficient flag count by neighbor")
+            changes.append(change)
+            if (x2,y2) not in discovered_incomplete_coordinates:
               if mines_around_local == 0:
-                zero_spread_from_position((x,y))
+                zero_spread_from_position((x2,y2))
               else:
-                discovered_incomplete_coordinates.add((x,y))
-              
-
+                discovered_incomplete_coordinates.add((x2,y2))
+          
+          m_around = get_mines_around(x,y)
+          change = BoardChange(coordinate_tuple,
+                MAPCOLORS[m_around],
+                str(m_around),
+                "Sufficient flag count")
+          changes.append(change)
           changes_last_step += 1
           discovered_incomplete_coordinates.remove(coordinate_tuple)
           solved_cell_set.add(coordinate_tuple)
@@ -383,9 +611,21 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
     return len(deduced)>0, deduced
     
   def cell_probability_analysis():
+    @dataclass
+    class Cell_Probability_Identity:
+      contributors: int = 0
+      summed_probability: float = 0
+
+      def get_probability(self):
+        return self.summed_probability/self.contributors
+      
+      def add_probability(self,probability:float):
+        self.contributors += 1
+        self.summed_probability += probability
+
     probability_frequencies : dict[float, int] = {}
 
-    adjacent_unsolved_cells : dict[tuple[int,int],list[float]] = {}
+    adjacent_unsolved_cells : dict[tuple[int,int],Cell_Probability_Identity] = {}
 
     for cell in discovered_incomplete_coordinates:
       x = cell[0]
@@ -394,12 +634,12 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
       blank_count, blank_list = get_empty_cells_around(x,y)
       for blank in blank_list:
         if blank not in adjacent_unsolved_cells:
-          adjacent_unsolved_cells[blank] = []
-        adjacent_unsolved_cells[blank].append(1- (mine_count/blank_count))
+          adjacent_unsolved_cells[blank] = Cell_Probability_Identity()
+        adjacent_unsolved_cells[blank].add_probability(1- (mine_count/blank_count))
 
     final_probability_by_cell : dict[tuple[int,int], float] = {}
-    for cell in adjacent_unsolved_cells:
-      final_probability = 1 - prod(adjacent_unsolved_cells[cell])
+    for cell, identity in adjacent_unsolved_cells.items():
+      final_probability = 1 - identity.get_probability()
       final_probability_by_cell[cell] = final_probability
       if final_probability not in probability_frequencies:
         probability_frequencies[final_probability] = 0
@@ -434,10 +674,23 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
           #probability_frequencies is % to be a mine
           final_probability_by_cell,probability_frequencies = cell_probability_analysis()
           lowest_mine_probability = min(probability_frequencies)
+          for cell, probability in final_probability_by_cell.items():
+            change = BoardChange(cell,
+              (255,255,0),
+              f"{probability*100:.1f}%",
+              "Probability Analysis Displaying...")
+            changes.append(change)
+          for cell, probability in final_probability_by_cell.items():
+            change = BoardChange(cell,
+              MAPCOLORS[10],
+              "",
+              "Probability Analysis Cleaning...")
+            changes.append(change)
           safest_coordinates = [k for k, v in final_probability_by_cell.items() if v == lowest_mine_probability]
           first_safest_coordinate = safest_coordinates[0]
           safest_x = first_safest_coordinate[0]
           safest_y = first_safest_coordinate[1]
+
           #IF 50/50
           if lowest_mine_probability == 0.5:
             #if final
@@ -477,12 +730,22 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
           if first_safest_coordinate in mine_positions:
             #IF IS BOMB
             tags.add(completion_tags.FAILED_BY_GUESSING_BOMB)
-            solved = True
+            change = BoardChange(first_safest_coordinate,
+              MAPCOLORS[10],
+              "MINE",
+              "Opened mine by probability guessing")
+            changes.append(change)
             break
           else:
             tags.add(completion_tags.SUCCESSFULLY_ELIMINATED_SOME_PROBABILITY_DURING_GAME)
-            scored_map[safest_x][safest_y] = get_mines_around(safest_x,safest_y)
+            mine_count = get_mines_around(safest_x,safest_y)
+            scored_map[safest_x][safest_y] = mine_count
             discovered_incomplete_coordinates.add((safest_x,safest_y))
+            change = BoardChange(first_safest_coordinate,
+              MAPCOLORS[mine_count],
+              str(mine_count),
+              "Guessed correctly by probability")
+            changes.append(change)
 
 
 
@@ -493,10 +756,31 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
           for coordinate, is_mine in deduced.items(): # type: ignore
             if is_mine:
               scored_map[coordinate[0]][coordinate[1]] = '*'
+              change = BoardChange(coordinate,
+                MAPCOLORS[9],
+                "*",
+                "Mine solved by simultaneous")
+              changes.append(change)
             else:
-              scored_map[coordinate[0]][coordinate[1]] = get_mines_around(coordinate[0],coordinate[1])
+              mines_around = get_mines_around(coordinate[0],coordinate[1])
+              change = BoardChange(coordinate,
+                MAPCOLORS[mines_around],
+                str(mines_around),
+                "Cell solved by simultaneous")
+              changes.append(change)
+              scored_map[coordinate[0]][coordinate[1]] = mines_around
               discovered_incomplete_coordinates.add((coordinate[0],coordinate[1]))
       else:
+        #get all tuples that are blank
+        undiscovered_cell_set: set[Tuple[int,int]] = set()
+        x = 0
+        for row in scored_map:
+          y = 0
+          for cell in row:
+            if (cell == "N"):
+              undiscovered_cell_set.add((x,y))
+            y += 1
+          x += 1
         solved = True
 
   
@@ -510,7 +794,7 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
       
 
 
-  return scored_map,discovered_incomplete_coordinates,final_probability_by_cell,probability_frequencies,tags, solved_cell_set
+  return scored_map,discovered_incomplete_coordinates,final_probability_by_cell,probability_frequencies,tags, solved_cell_set, changes
 
 class completion_tags(Enum):
   INCOMPLETE = 0 #DONE
@@ -613,7 +897,7 @@ def example_usage():
   solved_cell_complete_delta_frequency : dict[int,frequency_and_tag_wrapper] = {} # delta : (frequency, tag : frequency)
   for index in tqdm(range(TEST_COUNT),desc="games simulated", unit=" games"):
     minefield, start_position_x, start_position_y,mine_positions = generate_minefield(MAP_X, MAP_Y, MINE_COUNT)
-    score_map,dico,final_probability_by_cell,probability_frequencies, tags,solved_cell_set = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y,mine_positions)
+    score_map,dico,final_probability_by_cell,probability_frequencies, tags,solved_cell_set, states = solve_minefield(minefield, MAP_X, MAP_Y, start_position_x, start_position_y,mine_positions)
     
     valid, tags = verify_board(score_map, minefield, tags)
     if completion_tags.COMPLETE in tags:
@@ -707,11 +991,11 @@ class ProgressList(tk.Frame):
       self.remove(row_id)
       simulations_by_row_id[row_id].running = False
       populate_treeview()
-    def update_list(self, row_id, value):
+    def update_list(self, row_id, value, simulation):
         """Update the progress bar."""
         if row_id in self.rows:
             self.rows[row_id]["bar"]["value"] = value
-
+            self.rows[row_id]["label"]["text"] = f"Sim: {simulation.rounds} rounds, {simulation.width}x{simulation.height}, {simulation.mine_density}% mines, {simulation.completion_percentage:.3f}% complete, eta: {time.strftime('%H:%M:%S', time.gmtime(((time.time() - simulation.start_time)/simulation.completion_percentage*100)- (time.time() - simulation.start_time)))}s"
     def remove(self, row_id):
         """Remove a row cleanly."""
         if row_id in self.rows:
@@ -721,6 +1005,15 @@ class ProgressList(tk.Frame):
 tk.Label(root, text="Simulations In Progress:").grid(row=8, column=0, columnspan=2, padx=10, pady=(10,0))
 progress_list = ProgressList(root)
 progress_list.grid(row=9, column=0, columnspan=2, sticky="nsew", padx=10, pady=10)
+
+
+class round: 
+  def __init__(self, start_pos: tuple[int,int], mine_positions: list[tuple[int,int]], simulation) -> None:
+    self.start_position: tuple[int,int] = start_pos
+    self.mine_positions: list[tuple[int,int]] = mine_positions
+    self.tags: set[completion_tags] = set()
+    self.simulation: minesweeper_simulation = simulation
+    self.changes: List[BoardChange] = [BoardChange(start_pos,MAPCOLORS[0],"0","Starting Position")]
 
 
 class minesweeper_simulation:
@@ -735,14 +1028,19 @@ class minesweeper_simulation:
     self.height = height
     self.mine_density = mine_density
     self.mine_count = -1
-    self.statistics = statistics.copy()
+    self.statistics = deepcopy(statistics)
     self.treeview_item_id : Optional[str] = None
     self.running = False
+    self.completion_percentage = 0.0
+    self.start_time = None
+
+    self.round_list: list[round] = []
 
     self.UPDATE_DB = 0.5
-  
+  def get_mine_count(self):
+    return int(self.width*self.height*self.mine_density/100)
   def solve_and_validate_mine_count(self):
-    mc = int(self.width*self.height*self.mine_density/100)
+    mc = self.get_mine_count()
     if mc >= self.height*self.width-9:
       return False
     self.mine_count = mc
@@ -751,13 +1049,18 @@ class minesweeper_simulation:
   def run(self):
     if self.solve_and_validate_mine_count():
       last_update_time = 0
+      self.start_time = time.time()
       self.running = True
 
       for i in range(self.rounds):
         if not self.running:
           return
         minefield, start_position_x, start_position_y,mine_positions = generate_minefield(self.width, self.height, self.mine_count)
-        score_map,dico,final_probability_by_cell,probability_frequencies, tags,solved_cell_set = solve_minefield(minefield, self.width, self.height, start_position_x, start_position_y,mine_positions)
+        this_round: round = round((start_position_x,start_position_y),mine_positions, self)
+        score_map,dico,final_probability_by_cell,probability_frequencies, tags,solved_cell_set, changes = solve_minefield(minefield, self.width, self.height, start_position_x, start_position_y,mine_positions)
+        this_round.tags = tags
+        this_round.changes = changes
+        self.round_list.append(this_round)
         valid, tags = verify_board(score_map, minefield, tags)
         if completion_tags.COMPLETE in tags:
           self.statistics[completion_tags.COMPLETE.name].count += 1
@@ -766,21 +1069,282 @@ class minesweeper_simulation:
       
         if self.treeview_item_id is not None and (time.time() - last_update_time) > self.UPDATE_DB:
           progress = int((i+1)/self.rounds*100)
-          root.after(0, progress_list.update_list, self.treeview_item_id, progress)
+          self.completion_percentage = (i+1)/self.rounds*100
+          root.after(0, progress_list.update_list, self.treeview_item_id, progress, self)
           last_update_time = time.time()
 
       if self.treeview_item_id is not None:
-        root.after(0, progress_list.update_list, self.treeview_item_id, 100)
+        root.after(0, progress_list.update_list, self.treeview_item_id, 100, self)
         root.after(0, progress_list.remove, self.treeview_item_id)
       move_simulation_to_processed(self)
       
-
-      
-        
-        
-
   def register_updater(self, treeview_item_id):
     self.treeview_item_id = treeview_item_id
+
+  def save(self, path):
+    ''' 
+    Layout
+
+    coordinateByteLength 1b
+    changeCountByteLength 4b
+    stringMapIndexByteLength 1b
+    
+    Width 4b
+    Height 4b
+    rounds 4b
+    mineDensity 4b
+
+    string map:
+    stringCount 1b
+    per string:
+    StringByteLength 2b
+    stringbytes...
+
+    statmap:
+    statCount 1b
+    statByteWidth 1b
+    per stat:
+    statByteLength 2b
+    statStringBytes...
+
+    per round:
+    ChangeCount ChangeCountByteLength
+    StartX coordinateByteLength
+    StartY coordinateByteLength
+    enumBitmask statByteWidth
+    
+
+    per Change:
+    ChangeCoordinateX coordinateByteLength
+    ChangeCoordinateY coordinateByteLength
+    Color 1b (0-10 of the presets)
+    cellText stringMapIndexByteLength
+    changeText stringMapIndexByteLength
+
+    
+    '''
+
+    #solve the variable lengths:
+    stringDict: dict[str, int] = {}
+    reverseStringList: list[str] = []
+    lowest_free_string_index = 0
+
+    highest_coordinate = 0
+    highest_change_len = 0
+
+    enmDict: dict[str,int] = {}
+    reverseEnumList: list[str] = []
+    lowest_free_enum_index = 0
+
+    for enm in completion_tags:
+      if enm.name not in enmDict:
+        enmDict[enm.name] = lowest_free_enum_index
+        reverseEnumList.append(enm.name)
+        lowest_free_enum_index += 1
+
+    for round in self.round_list:
+      highest_change_len = max(highest_change_len,len(round.changes))
+      for change in round.changes:
+        if change.cell_text not in stringDict:
+          stringDict[change.cell_text] = lowest_free_string_index
+          print(f"STRING SAVED:'{change.cell_text}'")
+          reverseStringList.append(change.cell_text)
+          lowest_free_string_index+=1
+        if change.change_text not in stringDict:
+          stringDict[change.change_text] = lowest_free_string_index
+          print(f"STRING SAVED:'{change.change_text}'")
+          reverseStringList.append(change.change_text)
+          lowest_free_string_index+=1
+        highest_coordinate = max(highest_coordinate,change.coordinate[0],change.coordinate[1])
+    print("string save end")
+    
+    #compute variable byte length based on maximums in dataset
+    coordinateByteLength = (highest_coordinate.bit_length() - 1) // 8 + 1
+    changeByteLength = (highest_change_len.bit_length() - 1) // 8 + 1
+    stringMapIndexByteLength = ((lowest_free_string_index - 1).bit_length() - 1) // 8 + 1
+
+
+    #fill bytearray
+    buffer = bytearray()
+
+    #magic
+    buffer += SAVEFILEMAGIC
+
+    #metadata
+    buffer += struct.pack("<B",coordinateByteLength)
+    buffer += struct.pack("<I",changeByteLength)
+    buffer += struct.pack("<B",stringMapIndexByteLength)
+
+    #sim data
+    buffer += struct.pack("<I",self.width)
+    buffer += struct.pack("<I",self.height)
+    buffer += struct.pack("<I",self.rounds)
+    buffer += struct.pack("<f",self.mine_density)
+    
+    #string map
+    buffer += struct.pack("<B",lowest_free_string_index)
+    for string in reverseStringList:
+      data = string.encode()
+      buffer += struct.pack("<H",len(data))
+      buffer += data
+    print(f"LOW:{lowest_free_string_index}, LEN:{len(stringDict)}")
+
+    #stat map
+    statByteWidth = lowest_free_enum_index // 8 + 1
+    buffer += struct.pack("<B", lowest_free_enum_index)
+    buffer += struct.pack("<B", statByteWidth)
+    for enm in reverseEnumList:
+      data = enm.encode()
+      buffer += struct.pack("<H", len(data))
+      buffer += data
+    #map data
+    for round in self.round_list:
+      #start postiiion and change count
+      buffer += len(round.changes).to_bytes(changeByteLength,byteorder="little")
+      buffer += round.start_position[0].to_bytes(coordinateByteLength,byteorder="little")
+      buffer += round.start_position[1].to_bytes(coordinateByteLength,byteorder="little")
+      bitmask = 0
+      for enm in round.tags:
+        bitmask |= 1 << enmDict[enm.name]
+      print("EEK!")
+      print(statByteWidth)
+      print(lowest_free_enum_index)
+      print(len(reverseEnumList))
+      print(bitmask.bit_length())
+      print(statByteWidth*8)
+      buffer += bitmask.to_bytes(statByteWidth, byteorder="little")
+      #per change data
+      for change in round.changes:
+        #change coord
+        buffer += change.coordinate[0].to_bytes(coordinateByteLength,byteorder="little")
+        buffer += change.coordinate[1].to_bytes(coordinateByteLength,byteorder="little")
+        #change color
+        buffer += struct.pack("<B",REVERSEMAPCOLORS[change.color])
+        #change strmap index
+        buffer += stringDict[change.cell_text].to_bytes(stringMapIndexByteLength,byteorder="little")
+        buffer += stringDict[change.change_text].to_bytes(stringMapIndexByteLength,byteorder="little")
+
+    compressed = zlib.compress(buffer,level=9)
+
+    #write compressed to file....
+    with open(path, "wb") as f:
+      f.write(compressed)
+    with open("DUPEUNCOM.mswpssf", "wb") as f:
+      f.write(buffer)
+    print("save end")
+
+  def load(self, path):
+    with open(path, "rb") as f:
+      compressed = f.read()
+    
+    buffer = zlib.decompress(compressed)
+    offset = 0
+
+    magic = buffer[0:7]
+    offset += 7
+    if magic != SAVEFILEMAGIC:
+      print("AHHH MAGIC MISMATCH")
+      assert(False)
+      return
+    
+    coordinateByteLength,changeByteLength,stringMapIndexByteLength = struct.unpack_from("<BIB", buffer, offset)
+    offset += struct.calcsize("B")
+    offset += struct.calcsize("I")
+    offset += struct.calcsize("B")
+
+    Width, = struct.unpack_from("<I", buffer, offset)
+    offset += struct.calcsize("I")
+    Height, = struct.unpack_from("<I", buffer, offset)
+    offset += struct.calcsize("I")
+    Rounds, = struct.unpack_from("<I", buffer, offset)
+    offset += struct.calcsize("I")
+    MineDensity, = struct.unpack_from("<f", buffer, offset)
+    offset += struct.calcsize("f")
+    stringCount, = struct.unpack_from("<B", buffer, offset)
+    offset += struct.calcsize("B")
+
+    self.width = Width
+    self.height = Height
+    self.rounds = Rounds
+    self.mine_density = MineDensity
+
+    stringList: List[str] = []
+
+    stringIndex = 0
+    print(f"sIndex:{stringCount}")
+    while stringIndex < stringCount:
+      stringByteLength = struct.unpack_from("<H", buffer, offset)[0]
+      offset += struct.calcsize("H")
+      data = buffer[offset:offset+stringByteLength].decode()
+      offset += stringByteLength
+      print(stringByteLength)
+      print(data)
+      stringList.append(data)
+      stringIndex += 1
+
+    statCount, = struct.unpack_from("<B", buffer, offset)
+    offset += struct.calcsize("B")
+    statByteWidth, = struct.unpack_from("<B", buffer, offset)
+    offset += struct.calcsize("B")
+    enmList: List[str] = []
+    enmIndex = 0
+    while enmIndex < statCount:
+      enmLength, = struct.unpack_from("<H", buffer, offset)
+      offset += struct.calcsize("H")
+      data = buffer[offset:offset+enmLength].decode()
+      print("A")
+      offset += enmLength
+      enmList.append(data)
+      enmIndex += 1
+    print("B")
+    roundIndex = 0
+    self.round_list.clear()
+    while roundIndex < Rounds:
+      changeCount = int.from_bytes(buffer[offset:offset+changeByteLength], "little")
+      offset += changeByteLength
+      StartX = int.from_bytes(buffer[offset:offset+coordinateByteLength], "little")
+      offset += coordinateByteLength
+      StartY = int.from_bytes(buffer[offset:offset+coordinateByteLength], "little")
+      offset += coordinateByteLength
+      thisRound = round((StartX,StartY),[(0,0)],self)
+      data = int.from_bytes(buffer[offset:offset+statByteWidth], "little")
+      offset += statByteWidth
+      for i in range(min(statCount,len(enmList))):
+        if (data >> i) & 1:
+          tag = completion_tags.__members__.get(enmList[i])
+          if tag is not None:
+            thisRound.tags.add(tag)
+      self.round_list.append(thisRound)
+      changeIndex = 0
+      while changeIndex < changeCount:
+        ChangeCoordinateX = int.from_bytes(buffer[offset:offset+coordinateByteLength], "little")
+        offset += coordinateByteLength
+        ChangeCoordinateY = int.from_bytes(buffer[offset:offset+coordinateByteLength], "little")
+        offset += coordinateByteLength
+        color = struct.unpack_from("<B",buffer,offset)[0]
+        offset += struct.calcsize("B")
+        cellText = stringList[int.from_bytes(buffer[offset:offset+stringMapIndexByteLength], "little")]
+        offset += stringMapIndexByteLength
+        changeText = stringList[int.from_bytes(buffer[offset:offset+stringMapIndexByteLength], "little")]
+        offset += stringMapIndexByteLength
+        thisRound.changes.append(BoardChange((ChangeCoordinateX,ChangeCoordinateY), MAPCOLORS[color],cellText,changeText))
+        changeIndex += 1
+      roundIndex += 1
+
+    self.mine_count = self.get_mine_count()
+
+    print(f"coordByteLength:{coordinateByteLength}")
+    print(f"changeByteLength:{changeByteLength}")
+    print(f"stringMapIndexByteLength:{stringMapIndexByteLength}")
+    print(f"Width:{Width}")
+    print(f"Height:{Height}")
+    print(f"Rounds:{Rounds}")
+    print(f"MineDensity:{MineDensity}")
+    print(f"stringCount:{stringCount}")
+
+
+
+    
 
 
 simulations_by_row_id : dict[str, minesweeper_simulation] = {}
@@ -955,12 +1519,12 @@ def start_selected_simulation():
   selected_item = selected_items[0]
   simulation = tree_table.get(selected_item)
   if simulation and not simulation.running:
-    messagebox.showinfo("Simulation Started", f"Started simulation with {simulation.rounds} rounds.")
     #run the simulation on another thread
-    sim_id = progress_list.add(f"Sim: {simulation.rounds} rounds, {simulation.width}x{simulation.height}, {simulation.mine_density}% mine density")
+    sim_id = progress_list.add(f"Sim: {simulation.rounds} rounds, {simulation.width}x{simulation.height}, {simulation.mine_density}% mines, {simulation.completion_percentage}% complete")
     simulation.register_updater(sim_id)
     simulations_by_row_id[sim_id] = simulation
     threading.Thread(target=simulation.run, daemon=True).start()
+    messagebox.showinfo("Simulation Started", f"Started simulation with {simulation.rounds} rounds.")
 
     populate_treeview()
   else:
@@ -995,15 +1559,16 @@ def run_all_simulations():
     return
   
   for simulation in simulation_backlog:
-    if simulation.running:
-      messagebox.showinfo("Simulation Skipped", f"Skipped simulation with {simulation.rounds} rounds as it is already running.")
-      continue
-    messagebox.showinfo("Simulation Started", f"Started simulation with {simulation.rounds} rounds.")
+    #messagebox.showinfo("Simulation Started", f"Started simulation with {simulation.rounds} rounds.")
     #run the simulation on another thread
-    sim_id = progress_list.add(f"Sim: {simulation.rounds} rounds, {simulation.width}x{simulation.height}, {simulation.mine_density}% mines")
+    if simulation.running:
+      messagebox.showinfo("Simulation Skipped", f"Will skip simulation with {simulation.rounds} rounds as it is already running, press OK to continue running simulations.")
+      continue
+    sim_id = progress_list.add(f"Sim: {simulation.rounds} rounds, {simulation.width}x{simulation.height}, {simulation.mine_density}% mines, {simulation.completion_percentage}% complete")
     simulation.register_updater(sim_id)
     simulations_by_row_id[sim_id] = simulation
     threading.Thread(target=simulation.run, daemon=True).start()
+  messagebox.showinfo("Simulations Started", "All simulations started.")
 
   populate_treeview()
 
@@ -1014,6 +1579,7 @@ run_all_simulations_button = tk.Button(root, text="Run All Simulations", command
 run_all_simulations_button.grid(row=3,column=1, sticky="w")
 
 def export_statistics(selected_item, is_all : bool = False):
+  simulations_to_export: List[minesweeper_simulation] = []
   if is_all:
     simulations_to_export = processed_simulation_backlog
   else:
@@ -1037,8 +1603,8 @@ def export_statistics(selected_item, is_all : bool = False):
     writer = csv.writer(file)
     #write header
     header = ["Rounds", "Width", "Height", "Mine Density", "Mine Count"]
-    for tag_name in statistics.keys():
-      header.append(tag_name)
+    for tag_name, tag in statistics.items():
+      header.append(tag.message)
     writer.writerow(header)
 
     for simulation in simulations_to_export:
@@ -1049,6 +1615,41 @@ def export_statistics(selected_item, is_all : bool = False):
 
     messagebox.showinfo("Export Successful", f"Simulation statistics exported successfully to {file_path}.")
 
+def saveSimulations(selected_item, is_all:bool = False):
+  simulations_to_export: List[minesweeper_simulation] = []
+  if is_all:
+    simulations_to_export = processed_simulation_backlog
+  else:
+    simulations_to_export = []
+    for item in selected_item:
+      simulation = processed_simulations_tree_table.get(item)
+      if simulation:
+        simulations_to_export.append(simulation)
+  
+  if len(simulations_to_export) > 1:
+    folder = filedialog.askdirectory(title="Select a folder to save simulations to.")
+    if folder:
+      ts = time.strftime("%Y%m%d_%H%M%S") 
+      for i, sim in enumerate(simulations_to_export):
+        filename = f"{ts}_simulation_{i+1}.mswpsf"
+        sim.save(os.path.join(folder, filename))
+  else:
+    file_path = filedialog.asksaveasfilename(defaultextension=".mswpsf", filetypes=[("Minesweeper Save Files", "*.mswpsf")])
+    ts = time.strftime("%Y%m%d_%H%M%S") 
+    for i, sim in enumerate(simulations_to_export):
+      sim.save(file_path)
+
+def loadSimulations():
+  file_paths = filedialog.askopenfilenames(defaultextension=".mswpsf", filetypes=[("Minesweeper Save Files", "*.mswpsf")])
+  for path in file_paths:
+    sim = minesweeper_simulation(0,0,0,0)
+    try:
+      sim.load(path)
+      simulation_backlog.append(sim)
+      move_simulation_to_processed(sim)
+    except Exception as e:
+      print(f"Failed to load {path} with error {e}")
+
 
 export_statistics_button = tk.Button(root, text="Export Selected Simulation Statistics", command=lambda: export_statistics(processed_simulations_tree.selection()))
 export_statistics_button.grid(row=10,column=0, sticky="e")
@@ -1056,6 +1657,17 @@ export_statistics_button.grid(row=10,column=0, sticky="e")
 export_all_statistics_button = tk.Button(root, text="Export All Simulation Statistics", command=lambda: export_statistics(None, True))
 export_all_statistics_button.grid(row=10,column=1, sticky="w")
 
+browse_selected_simulation_button = tk.Button(root, text="Browse Rounds Of Selected Simulation", command=lambda: open_round_browser(root,processed_simulations_tree.selection(), view_round))
+browse_selected_simulation_button.grid(row=11,column=0, columnspan=2)
+
+saveSelectedSimulationButton = tk.Button(root, text="Save Selected Simulation/s", command=lambda: saveSimulations(processed_simulations_tree.selection()))
+saveSelectedSimulationButton.grid(row=12,column=0, sticky="e")
+
+saveAllSimulationButton = tk.Button(root, text="Save All Simulations", command=lambda: saveSimulations(processed_simulations_tree.selection(), True))
+saveAllSimulationButton.grid(row=12,column=1, sticky="w")
+
+loadSimulationsButton = tk.Button(root, text="Load Simulations", command=lambda: loadSimulations())
+loadSimulationsButton.grid(row=13,column=0, columnspan=2)
 
 def populate_processed_treeview():
   processed_simulations_tree.delete(*processed_simulations_tree.get_children())
@@ -1063,6 +1675,161 @@ def populate_processed_treeview():
     pst = processed_simulations_tree.insert("", "end", values=(f"{simulation.rounds}", f"{simulation.width}", f"{simulation.height}", f"{simulation.mine_density}%", f"{simulation.mine_count}"))
     processed_simulations_tree_table[pst] = simulation
 
+def view_round(round:round):
+  renderer: MinesweeperRenderer = MinesweeperRenderer(round.simulation.width, round.simulation.height)
+  renderer.run_round(round)
+
+def open_round_browser(
+    root: tk.Tk,
+    selected,
+    on_view_round: Callable[[round], None]
+):
+    if len(selected) != 1:
+        messagebox.showinfo("View round", "Please only select one simulation to view.")
+        return
+
+    simulation = processed_simulations_tree_table.get(selected[0])
+    if simulation is None:
+        messagebox.showinfo("Error", "Couldn't find selected simulation somehow")
+        return
+
+    win = tk.Toplevel(root)
+    win.title("Simulation Rounds")
+    win.geometry("800x500")
+
+    PAGE_SIZE = 100
+    current_page = 0
+    filtered_rounds: list[round] = []
+
+    # -------------------------------
+    # Tag filter panel
+    # -------------------------------
+    filter_frame = ttk.LabelFrame(win, text="Filter by Completion Tags")
+    filter_frame.pack(fill="y", padx=8, pady=6)
+
+    tag_vars = {}
+
+    for tag in completion_tags:
+        var = tk.BooleanVar(value=False)
+        chk = ttk.Checkbutton(
+            filter_frame,
+            text=tag.name,
+            variable=var
+        )
+        chk.pack( padx=4)
+        tag_vars[tag] = var
+
+    # -------------------------------
+    # Scrollable list setup
+    # -------------------------------
+    container = ttk.Frame(win)
+    container.pack(fill="both", expand=True, padx=8, pady=8)
+
+    canvas = tk.Canvas(container)
+    scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+    scroll_frame = ttk.Frame(canvas)
+
+    scroll_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
+
+    canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    # -------------------------------
+    # Row rendering with pagination
+    # -------------------------------
+    def render_rows():
+        nonlocal filtered_rounds, current_page
+
+        for child in scroll_frame.winfo_children():
+            child.destroy()
+
+        selected_tags = {tag for tag, var in tag_vars.items() if var.get()}
+
+        filtered_rounds = [
+            r for r in simulation.round_list
+            if selected_tags.issubset(r.tags)
+        ]
+
+        max_pages = max(1, (len(filtered_rounds) - 1) // PAGE_SIZE + 1)
+        current_page = max(0, min(current_page, max_pages - 1))
+
+        start = current_page * PAGE_SIZE
+        end = start + PAGE_SIZE
+
+        for idx, r in enumerate(filtered_rounds[start:end], start=start):
+            row = ttk.Frame(scroll_frame)
+            row.pack(fill="x", pady=2)
+
+            ttk.Label(
+                row,
+                text=f"Round {idx}",
+                width=12
+            ).pack(side="left", padx=4)
+
+            tag_text = ", ".join(tag.name for tag in r.tags) or "—"
+            ttk.Label(
+                row,
+                text=tag_text
+            ).pack(side="left", fill="x", expand=True, padx=6)
+
+            ttk.Button(
+                row,
+                text="View / Step",
+                command=lambda r=r: on_view_round(r)
+            ).pack(side="right", padx=4)
+
+        page_label.config(
+            text=f"Page {current_page + 1} / {max_pages} ({len(filtered_rounds)} rounds)"
+        )
+
+        canvas.yview_moveto(0)
+
+    # -------------------------------
+    # Pagination controls
+    # -------------------------------
+    nav_frame = ttk.Frame(win)
+    nav_frame.pack(fill="x", padx=8, pady=4)
+
+    page_label = ttk.Label(nav_frame, text="")
+    page_label.pack(side="left")
+
+    def prev_page():
+        nonlocal current_page
+        if current_page > 0:
+            current_page -= 1
+            render_rows()
+
+    def next_page():
+        nonlocal current_page
+        max_pages = max(1, (len(filtered_rounds) - 1) // PAGE_SIZE + 1)
+        if current_page < max_pages - 1:
+            current_page += 1
+            render_rows()
+
+    ttk.Button(nav_frame, text="◀ Prev", command=prev_page).pack(side="right", padx=4)
+    ttk.Button(nav_frame, text="Next ▶", command=next_page).pack(side="right")
+
+    # -------------------------------
+    # Apply filter button
+    # -------------------------------
+    def apply_filter():
+        nonlocal current_page
+        current_page = 0
+        render_rows()
+
+    ttk.Button(
+        filter_frame,
+        text="Apply Filter",
+        command=apply_filter
+    ).pack(side="right", padx=6)
+
+    render_rows()
 
 
 
