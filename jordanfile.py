@@ -49,7 +49,7 @@ MINE_COUNT = int(MAP_X*MAP_Y*MINE_DENSITY)
 #################################################################
 
 #i'll make UI for this eventually :sob:
-assert(False)
+assert(False) #maybe reconsider how things are tagged? esp probability based, u were last working at line 800
 #IMPLEMENT the probability analysis when NO DICO and unsolved cells, just by collated probablility or somethingg
 
 MAPCOLORS = [
@@ -771,6 +771,8 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
               scored_map[coordinate[0]][coordinate[1]] = mines_around
               discovered_incomplete_coordinates.add((coordinate[0],coordinate[1]))
       else:
+        #cells but no cells
+
         #get all tuples that are blank
         undiscovered_cell_set: set[Tuple[int,int]] = set()
         x = 0
@@ -781,7 +783,31 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
               undiscovered_cell_set.add((x,y))
             y += 1
           x += 1
+
+        perCellMineChance = 100/len(undiscovered_cell_set)
+        perCellStr = f"{perCellMineChance:.1f}%"
+
+        for cell in undiscovered_cell_set:
+          change = BoardChange(cell,(255,255,255), perCellStr, "Blind guess display")
+          changes.append(change)
+
+        for cell in undiscovered_cell_set:
+          change = BoardChange(cell,MAPCOLORS[10], "", "Blind guess display cleaning...")
+          changes.append(change)
+        
+        tags.add(completion_tags.BLIND_GUESS)
+
+        # completion_tags.FINAL_STUCK_MULTIPLE_5050
+    
+        # completion_tags.FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050
+        # completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050
+        if len(undiscovered_cell_set) == 2:
+          tags.add(completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050)
+        # completion_tags.MID_GAME_STUCK_5050
+        # completion_tags.BLIND_GUESS
+        
         solved = True
+
 
   
   main_solve_loop()
@@ -809,6 +835,7 @@ class completion_tags(Enum):
   SIMULTANEOUS_SOLUTION_CONTRIBUTION = 7 # done
   SIMULTANEOUS_FAILED_TO_RESOLVE = 8 #done
   SUCCESSFULLY_ELIMINATED_SOME_PROBABILITY_DURING_GAME = 11
+  BLIND_GUESS = 12
 
 class statistic:
   def __init__(self, count, base, message, name = '') -> None:
@@ -848,6 +875,8 @@ statistics[completion_tags.SIMULTANEOUS_SOLUTION_CONTRIBUTION.name].base = TEST_
 statistics[completion_tags.SIMULTANEOUS_SOLUTION_CONTRIBUTION.name].message = "Games where the simultaneous solver was used"
 statistics[completion_tags.SIMULTANEOUS_FAILED_TO_RESOLVE.name].base = TEST_COUNT
 statistics[completion_tags.SIMULTANEOUS_FAILED_TO_RESOLVE.name].message = "Games where the simultaneous solver was used but didnt help"
+statistics[completion_tags.BLIND_GUESS.name].base = TEST_COUNT
+statistics[completion_tags.BLIND_GUESS.name].message = "Games where remaining cells were isolated by mines, so a blind guess was required"
 
 def verify_board(board, minefield, tags : set[completion_tags]):
   valid = True
