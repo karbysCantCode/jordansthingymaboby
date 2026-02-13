@@ -24,6 +24,9 @@ import struct
 import zlib
 import os
 
+#notes
+#the solver does keep track of how many mines have been discovered
+
 
 #################################################################
 # SETTINGS!!!!!!!!
@@ -49,7 +52,7 @@ MINE_COUNT = int(MAP_X*MAP_Y*MINE_DENSITY)
 #################################################################
 
 #i'll make UI for this eventually :sob:
-assert(False) #maybe reconsider how things are tagged? esp probability based, u were last working at line 800
+#assert(False) #maybe reconsider how things are tagged? esp probability based, u were last working at line 800
 #IMPLEMENT the probability analysis when NO DICO and unsolved cells, just by collated probablility or somethingg
 
 MAPCOLORS = [
@@ -299,11 +302,12 @@ class MinesweeperRenderer:
 
     def change(self, change: BoardChange, is_special = False):
       x, y = change.coordinate
-      if not is_special:
-        self.board[x][y].color = change.color
-      else:
-        self.board[x][y].color = (255,255,0)
-      self.board[x][y].text = change.cell_text
+      if x >= 0 and y >= 0:
+        if not is_special:
+          self.board[x][y].color = change.color
+        else:
+          self.board[x][y].color = (255,255,0)
+        self.board[x][y].text = change.cell_text
       self.header_text = change.change_text
 
     def apply_changes(self, changes: List[BoardChange]):
@@ -384,6 +388,8 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
   scored_map = numpy.full((map_x, map_y), 'N', dtype=object)
   already_spread_map = numpy.zeros((map_x, map_y), dtype=int)
   solved_cell_set : set[tuple[int,int]]= set()
+
+  mines_left = len(mine_positions)
 
   changes_last_step = 1
   zero_spread_last_step_solved_coordinates : list[tuple[int, int]] = []
@@ -488,6 +494,7 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
     nonlocal discovered_incomplete_coordinates
     nonlocal scored_map
     nonlocal solved_cell_set
+    nonlocal mines_left
 
     changes_last_step = len(discovered_incomplete_coordinates)
 
@@ -524,6 +531,7 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
             changes.append(change)
             scored_map[x2][y2] = '*'
             solved_cell_set.add((x2,y2))
+            mines_left -= 1
 
           m_around = get_mines_around(x,y)
           change = BoardChange(coordinate_tuple,
@@ -659,12 +667,14 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
     nonlocal solved_cell_set
     nonlocal map_x
     nonlocal map_y
+    nonlocal mines_left
+
     solved = False
     while not (solved):
       #print(solving_count)
       basic_solve_loop()
       #if there are unsolved cells
-      if len(discovered_incomplete_coordinates) != 0:
+      if len(discovered_incomplete_coordinates) != 0 and mines_left > 0:
         #print("a")
         simultaneous_resolved, deduced = simultaneous_solver()
 
@@ -756,6 +766,7 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
           for coordinate, is_mine in deduced.items(): # type: ignore
             if is_mine:
               scored_map[coordinate[0]][coordinate[1]] = '*'
+              mines_left -= 1
               change = BoardChange(coordinate,
                 MAPCOLORS[9],
                 "*",
@@ -770,7 +781,7 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
               changes.append(change)
               scored_map[coordinate[0]][coordinate[1]] = mines_around
               discovered_incomplete_coordinates.add((coordinate[0],coordinate[1]))
-      else:
+      elif mines_left > 0:
         #cells but no cells
 
         #get all tuples that are blank
@@ -784,29 +795,75 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
             y += 1
           x += 1
 
-        perCellMineChance = 100/len(undiscovered_cell_set)
-        perCellStr = f"{perCellMineChance:.1f}%"
+        if len(undiscovered_cell_set) > 0:
+          solved = True
 
-        for cell in undiscovered_cell_set:
-          change = BoardChange(cell,(255,255,255), perCellStr, "Blind guess display")
-          changes.append(change)
+          perCellMineChance = mines_left/len(undiscovered_cell_set)
+          perCellStr = f"{perCellMineChance*100:.1f}%"
 
-        for cell in undiscovered_cell_set:
-          change = BoardChange(cell,MAPCOLORS[10], "", "Blind guess display cleaning...")
-          changes.append(change)
+          for cell in undiscovered_cell_set:
+            change = BoardChange(cell,(255,255,255), perCellStr, "Blind guess display")
+            changes.append(change)
+
+          for cell in undiscovered_cell_set:
+            change = BoardChange(cell,MAPCOLORS[10], "", "Blind guess display cleaning...")
+            changes.append(change)
+          
+          if (perCellMineChance != 1):
+            tags.add(completion_tags.BLIND_GUESS)
+
+            # completion_tags.FINAL_STUCK_MULTIPLE_5050
         
-        tags.add(completion_tags.BLIND_GUESS)
+            # completion_tags.FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050
+            # completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050
+            if (perCellMineChance == 0.5):
+              if len(undiscovered_cell_set) == 2:
+                tags.add(completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050)
+                
+              elif mines_left == len(undiscovered_cell_set):
+                tags.add(completion_tags.FINAL_STUCK_MULTIPLE_5050)
+              
+              elif mines_left != len(undiscovered_cell_set):
+                tags.add(completion_tags.MID_GAME_STUCK_5050)
+              solved = True
+            else:
+              
+              selected_tuple = undiscovered_cell_set.pop()
+              if selected_tuple in mine_positions:
+                tags.add(completion_tags.FAILED_BY_GUESSING_BOMB)
+              else:
+                tags.add(completion_tags.SUCCESSFULLY_ELIMINATED_SOME_PROBABILITY_DURING_GAME)
+                mine_count = get_mines_around(selected_tuple[0],selected_tuple[1])
+                scored_map[selected_tuple[0]][selected_tuple[1]] = mine_count
+                discovered_incomplete_coordinates.add(selected_tuple)
+                change = BoardChange(selected_tuple,
+                  MAPCOLORS[mine_count],
+                  str(mine_count),
+                  "Guessed correctly by probability")
+                changes.append(change)
+          else:
+            selected_tuple = undiscovered_cell_set.pop()
+            mine_count = get_mines_around(selected_tuple[0],selected_tuple[1])
+            scored_map[selected_tuple[0]][selected_tuple[1]] = mine_count
+            discovered_incomplete_coordinates.add(selected_tuple)
+            change = BoardChange(selected_tuple,
+              MAPCOLORS[mine_count],
+              str(mine_count),
+              "Guessed correctly by probability")
+            changes.append(change)
 
-        # completion_tags.FINAL_STUCK_MULTIPLE_5050
-    
-        # completion_tags.FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050
-        # completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050
-        if len(undiscovered_cell_set) == 2:
-          tags.add(completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050)
+        else:
+          solved = True
+      else:
+        solved = True
         # completion_tags.MID_GAME_STUCK_5050
         # completion_tags.BLIND_GUESS
+    change = BoardChange((-1,-1),
+      MAPCOLORS[0],
+      str(0),
+      "Completed.")
+    changes.append(change)     
         
-        solved = True
 
 
   
