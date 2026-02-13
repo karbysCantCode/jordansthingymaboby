@@ -1315,8 +1315,8 @@ class minesweeper_simulation:
     #write compressed to file....
     with open(path, "wb") as f:
       f.write(compressed)
-    with open("DUPEUNCOM.mswpssf", "wb") as f:
-      f.write(buffer)
+    # with open("DUPEUNCOM.mswpssf", "wb") as f:
+    #   f.write(buffer)
     print("save end")
 
   def load(self, path):
