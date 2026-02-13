@@ -1233,16 +1233,16 @@ class minesweeper_simulation:
       for change in round.changes:
         if change.cell_text not in stringDict:
           stringDict[change.cell_text] = lowest_free_string_index
-          print(f"STRING SAVED:'{change.cell_text}'")
+          # print(f"STRING SAVED:'{change.cell_text}'")
           reverseStringList.append(change.cell_text)
           lowest_free_string_index+=1
         if change.change_text not in stringDict:
           stringDict[change.change_text] = lowest_free_string_index
-          print(f"STRING SAVED:'{change.change_text}'")
+          # print(f"STRING SAVED:'{change.change_text}'")
           reverseStringList.append(change.change_text)
           lowest_free_string_index+=1
         highest_coordinate = max(highest_coordinate,change.coordinate[0],change.coordinate[1])
-    print("string save end")
+    # print("string save end")
     
     #compute variable byte length based on maximums in dataset
     coordinateByteLength = (highest_coordinate.bit_length() - 1) // 8 + 1
@@ -1273,7 +1273,7 @@ class minesweeper_simulation:
       data = string.encode()
       buffer += struct.pack("<H",len(data))
       buffer += data
-    print(f"LOW:{lowest_free_string_index}, LEN:{len(stringDict)}")
+    # print(f"LOW:{lowest_free_string_index}, LEN:{len(stringDict)}")
 
     #stat map
     statByteWidth = lowest_free_enum_index // 8 + 1
@@ -1292,18 +1292,18 @@ class minesweeper_simulation:
       bitmask = 0
       for enm in round.tags:
         bitmask |= 1 << enmDict[enm.name]
-      print("EEK!")
-      print(statByteWidth)
-      print(lowest_free_enum_index)
-      print(len(reverseEnumList))
-      print(bitmask.bit_length())
-      print(statByteWidth*8)
+      # print("EEK!")
+      # print(statByteWidth)
+      # print(lowest_free_enum_index)
+      # print(len(reverseEnumList))
+      # print(bitmask.bit_length())
+      # print(statByteWidth*8)
       buffer += bitmask.to_bytes(statByteWidth, byteorder="little")
       #per change data
       for change in round.changes:
         #change coord
-        buffer += change.coordinate[0].to_bytes(coordinateByteLength,byteorder="little")
-        buffer += change.coordinate[1].to_bytes(coordinateByteLength,byteorder="little")
+        buffer += change.coordinate[0].to_bytes(coordinateByteLength,byteorder="little", signed=True)
+        buffer += change.coordinate[1].to_bytes(coordinateByteLength,byteorder="little", signed=True)
         #change color
         buffer += struct.pack("<B",REVERSEMAPCOLORS[change.color])
         #change strmap index
@@ -1357,14 +1357,14 @@ class minesweeper_simulation:
     stringList: List[str] = []
 
     stringIndex = 0
-    print(f"sIndex:{stringCount}")
+    # print(f"sIndex:{stringCount}")
     while stringIndex < stringCount:
       stringByteLength = struct.unpack_from("<H", buffer, offset)[0]
       offset += struct.calcsize("H")
       data = buffer[offset:offset+stringByteLength].decode()
       offset += stringByteLength
-      print(stringByteLength)
-      print(data)
+      # print(stringByteLength)
+      # print(data)
       stringList.append(data)
       stringIndex += 1
 
@@ -1378,11 +1378,11 @@ class minesweeper_simulation:
       enmLength, = struct.unpack_from("<H", buffer, offset)
       offset += struct.calcsize("H")
       data = buffer[offset:offset+enmLength].decode()
-      print("A")
+      # print("A")
       offset += enmLength
       enmList.append(data)
       enmIndex += 1
-    print("B")
+    # print("B")
     roundIndex = 0
     self.round_list.clear()
     while roundIndex < Rounds:
@@ -1403,9 +1403,9 @@ class minesweeper_simulation:
       self.round_list.append(thisRound)
       changeIndex = 0
       while changeIndex < changeCount:
-        ChangeCoordinateX = int.from_bytes(buffer[offset:offset+coordinateByteLength], "little")
+        ChangeCoordinateX = int.from_bytes(buffer[offset:offset+coordinateByteLength], "little", signed=True)
         offset += coordinateByteLength
-        ChangeCoordinateY = int.from_bytes(buffer[offset:offset+coordinateByteLength], "little")
+        ChangeCoordinateY = int.from_bytes(buffer[offset:offset+coordinateByteLength], "little", signed=True)
         offset += coordinateByteLength
         color = struct.unpack_from("<B",buffer,offset)[0]
         offset += struct.calcsize("B")
@@ -1419,14 +1419,14 @@ class minesweeper_simulation:
 
     self.mine_count = self.get_mine_count()
 
-    print(f"coordByteLength:{coordinateByteLength}")
-    print(f"changeByteLength:{changeByteLength}")
-    print(f"stringMapIndexByteLength:{stringMapIndexByteLength}")
-    print(f"Width:{Width}")
-    print(f"Height:{Height}")
-    print(f"Rounds:{Rounds}")
-    print(f"MineDensity:{MineDensity}")
-    print(f"stringCount:{stringCount}")
+    # print(f"coordByteLength:{coordinateByteLength}")
+    # print(f"changeByteLength:{changeByteLength}")
+    # print(f"stringMapIndexByteLength:{stringMapIndexByteLength}")
+    # print(f"Width:{Width}")
+    # print(f"Height:{Height}")
+    # print(f"Rounds:{Rounds}")
+    # print(f"MineDensity:{MineDensity}")
+    # print(f"stringCount:{stringCount}")
 
 
 
