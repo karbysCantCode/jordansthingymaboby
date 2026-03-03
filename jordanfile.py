@@ -702,7 +702,7 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
           safest_y = first_safest_coordinate[1]
 
           #IF 50/50
-          if lowest_mine_probability == 0.5:
+          if lowest_mine_probability == 0.5 and probability_frequencies[0.5] >= 2:
             #if final
             if len(solved_cell_set) + len(discovered_incomplete_coordinates) + len(final_probability_by_cell) + len(mine_positions) == map_x*map_y:
               # FINAL_STUCK_ONLY_AND_ONE_5050 = 5
@@ -714,17 +714,21 @@ def solve_minefield(minefield_map, map_x : int, map_y : int, start_position_x : 
                 if probability_frequencies[0.5] == 2: #bc 5050 would involve 2 cells
                   #only onme
                   tags.add(completion_tags.FINAL_STUCK_ONLY_AND_ONE_5050)
-                else:
+                elif probability_frequencies[0.5] % 2 == 0:
                   #multiple
                   tags.add(completion_tags.FINAL_STUCK_MULTIPLE_5050)
+                else:
+                  tags.add(completion_tags.MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES)
               else:
                 # ONE 5050 and lesser probabilities
                 if probability_frequencies[0.5] == 2:#bc 5050 would involve 2 cells
                   #only onme 5050
                   tags.add(completion_tags.FINAL_STUCK_ONE_5050_AND_PROBABILITY_LESS_THAN_5050)
-                else:
-                  #multiple 5050
+                elif probability_frequencies[0.5] % 2 == 0:
+                  #multiple
                   tags.add(completion_tags.FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050)
+                else:
+                  tags.add(completion_tags.MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES_AND_PROBABILITY_LESS_THAN_5050)
 
             else:
               tags.add(completion_tags.MID_GAME_STUCK_5050)
@@ -893,6 +897,8 @@ class completion_tags(Enum):
   SIMULTANEOUS_FAILED_TO_RESOLVE = 8 #done
   SUCCESSFULLY_ELIMINATED_SOME_PROBABILITY_DURING_GAME = 11
   BLIND_GUESS = 12
+  MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES = 13
+  MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES_AND_PROBABILITY_LESS_THAN_5050 = 14
 
 class statistic:
   def __init__(self, count, base, message, name = '') -> None:
@@ -934,6 +940,10 @@ statistics[completion_tags.SIMULTANEOUS_FAILED_TO_RESOLVE.name].base = TEST_COUN
 statistics[completion_tags.SIMULTANEOUS_FAILED_TO_RESOLVE.name].message = "Games where the simultaneous solver was used but didnt help"
 statistics[completion_tags.BLIND_GUESS.name].base = TEST_COUNT
 statistics[completion_tags.BLIND_GUESS.name].message = "Games where remaining cells were isolated by mines, so a blind guess was required"
+statistics[completion_tags.MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES.name].base = TEST_COUNT
+statistics[completion_tags.MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES.name].message = "Games where there were an odd number of possible cells with a 50% chance (each individually) to be a bomb"
+statistics[completion_tags.MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES_AND_PROBABILITY_LESS_THAN_5050.name].base = TEST_COUNT
+statistics[completion_tags.MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES_AND_PROBABILITY_LESS_THAN_5050.name].message = "Games where there were an odd number of possible cells with a 50% chance (each individually) to be a bomb and also other cells with lesser chances to be a bomb"
 
 def verify_board(board, minefield, tags : set[completion_tags]):
   valid = True
