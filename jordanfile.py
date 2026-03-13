@@ -917,7 +917,7 @@ for tag in completion_tags:
 statistics[completion_tags.COMPLETE.name].base = TEST_COUNT
 statistics[completion_tags.COMPLETE.name].message = "Games finished successfully."
 statistics[completion_tags.INCOMPLETE.name].base = TEST_COUNT
-statistics[completion_tags.INCOMPLETE.name].message = "Games finished incomplete."
+statistics[completion_tags.INCOMPLETE.name].message = "Games finished incomplete. (cells unexplored)"
 statistics[completion_tags.INVALID_FLAG.name].base = TEST_COUNT
 statistics[completion_tags.INVALID_FLAG.name].message = "Games finished with false flags."
 statistics[completion_tags.FAILED_BY_GUESSING_BOMB.name].base = TEST_COUNT

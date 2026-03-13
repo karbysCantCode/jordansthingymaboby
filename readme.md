@@ -58,4 +58,33 @@
 
 ## Completion tags and their meanings
 
+COMPLETE == "Games finished successfully."  
+
+INCOMPLETE == "Games finished incomplete. (cells unexplored)"  
+
+INVALID_FLAG == "Games finished with false flags."  
+
+FAILED_BY_GUESSING_BOMB == "Games failed eliminating probability. (mine selected)"  
+
+MID_GAME_STUCK_5050 == "Games stuck on 50/50's but not as a final move"  
+
+FINAL_STUCK_ONLY_AND_ONE_5050 == "Games stuck on ONE 50/50 AS a final move"  
+
+FINAL_STUCK_MULTIPLE_5050 == "Games stuck on MULTIPLE and ONLY 50/50's as a final move"  
+
+FINAL_STUCK_ONE_5050_AND_PROBABILITY_LESS_THAN_5050 == "Games stuck on ONE 50/50 and other probablities less than 50%% as final"  
+
+FINAL_STUCK_MULTIPLE_5050_AND_PROBABILITY_LESS_THAN_5050 == "Games stuck on MULTIPLE 50/50's and other probablities less than 50%% as final"  
+
+SUCCESSFULLY_ELIMINATED_SOME_PROBABILITY_DURING_GAME == "Games that successfully eliminated probability during the round (may not have ended up completing, but did eliminate at least one successfully)"  
+
+SIMULTANEOUS_SOLUTION_CONTRIBUTION == "Games where the simultaneous solver was used"  
+
+SIMULTANEOUS_FAILED_TO_RESOLVE == "Games where the simultaneous solver was used but didnt help"  
+
+BLIND_GUESS == "Games where remaining cells were isolated by mines, so a blind guess was required"  
+
+MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES == "Games where there were an odd number of possible cells with a 50% chance (each individually) to be a bomb"  
+
+MULTIPLE_INDIVIDUAL_50_PERCENT_CHANCES_AND_PROBABILITY_LESS_THAN_5050 == "Games where there were an odd number of possible cells with a 50% chance (each individually) to be a bomb and also other cells with lesser chances to be a bomb"  
 
